@@ -112,13 +112,15 @@ jobs:
           file: apps/rotom-ng/Dockerfile
           platforms: ${{ matrix.arch }}
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,"name=${{ env.GHCR_REPO }}",push-by-digest=true,name-canonical=true,push=true
+          outputs: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing') && format('type=image,"name={0}",push-by-digest=true,name-canonical=true,push=true', env.GHCR_REPO) || 'type=docker' }}
       - name: Export digest
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing'
         run: |
           mkdir -p ${{ runner.temp }}/digests
           digest="${{ steps.build.outputs.digest }}"
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
       - name: Upload digest
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing'
         uses: actions/upload-artifact@v4
         with:
           name: digests-${{ env.PLATFORM_PAIR }}
@@ -143,6 +145,7 @@ jobs:
           retention-days: 1
 
   merge-docker-builds:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing'
     needs: [build]
     runs-on: ubuntu-latest
     permissions:
