@@ -32,7 +32,8 @@ When disabled, `GET /api/metrics` returns `404`.
 | OG field | NG field | Notes |
 |----------|----------|-------|
 | `devices` | `devices` | Field names changed (see below) |
-| `workers` | `controllers` | Renamed; structure changed |
+| `workers` | `devices.workers` | Moved to nest under each device; Field names changed |
+|  N/A      | `controllers` | New |
 
 Notable device field renames and additions in NG:
 
@@ -141,18 +142,18 @@ Job instance response fields changed:
 
 | OG Metric | NG Metric | Notes |
 |-----------|-----------|-------|
-| `rotom_devices_alive` | `rotom_devices_connected` | Now includes `origin` label |
-| `rotom_devices_total` | `rotom_devices_total` | Now includes `origin` label (OG had no labels) |
-| `rotom_workers_total` | `rotom_workers_connected` | Renamed for clarity |
-| `rotom_workers_active` | `rotom_workers_in_use` | Renamed for clarity |
+| `rotom_devices_alive` | `rotom_ng_devices_connected` | Now includes `origin` label |
+| `rotom_devices_total` | `rotom_ng_devices_total` | Now includes `origin` label (OG had no labels) |
+| `rotom_workers_total` | `rotom_ng_workers_connected` | Renamed for clarity |
+| `rotom_workers_active` | `rotom_ng_workers_in_use` | Renamed for clarity |
 
-### Unchanged Metrics
+### Renamed Metrics (namespace only)
 
-| Metric | Notes |
-|--------|-------|
-| `rotom_device_memory_free` | Same name and `origin` label |
-| `rotom_device_memory_mitm` | Same name and `origin` label |
-| `rotom_device_memory_start` | Same name and `origin` label |
+| OG Metric | NG Metric | Notes |
+|-----------|-----------|-------|
+| `rotom_device_memory_free` | `rotom_ng_device_memory_free` | `origin` label unchanged |
+| `rotom_device_memory_mitm` | `rotom_ng_device_memory_mitm` | `origin` label unchanged |
+| `rotom_device_memory_start` | `rotom_ng_device_memory_start` | `origin` label unchanged |
 
 ### Removed Metrics
 
@@ -166,69 +167,71 @@ Job instance response fields changed:
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `rotom_device_commands_executed_total` | Counter | `origin`, `command` | Total device commands executed |
-| `rotom_device_commands_success_total` | Counter | `origin`, `command` | Successful device commands |
-| `rotom_device_commands_error_total` | Counter | `origin`, `command` | Failed device commands |
+| `rotom_ng_device_commands_executed_total` | Counter | `origin`, `command` | Total device commands executed |
+| `rotom_ng_device_commands_success_total` | Counter | `origin`, `command` | Successful device commands |
+| `rotom_ng_device_commands_error_total` | Counter | `origin`, `command` | Failed device commands |
 
 **Registration metrics:**
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `rotom_device_registrations_total` | Counter | `origin` | Total device registrations |
-| `rotom_device_registration_fails_total` | Counter | _(none)_ | Failed device registrations |
-| `rotom_worker_registrations_total` | Counter | `origin` | Total worker registrations |
-| `rotom_worker_registration_fails_total` | Counter | _(none)_ | Failed worker registrations |
+| `rotom_ng_device_registrations_total` | Counter | `origin` | Total device registrations |
+| `rotom_ng_device_registration_fails_total` | Counter | _(none)_ | Failed device registrations |
+| `rotom_ng_worker_registrations_total` | Counter | `origin` | Total worker registrations |
+| `rotom_ng_worker_registration_fails_total` | Counter | _(none)_ | Failed worker registrations |
 
 **Connection accept metrics:**
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `rotom_device_control_accepts_total` | Counter | _(none)_ | Device control connection accepts |
-| `rotom_device_control_accept_fails_total` | Counter | _(none)_ | Failed device control accepts |
-| `rotom_worker_accepts_total` | Counter | _(none)_ | Worker connection accepts |
-| `rotom_worker_accept_fails_total` | Counter | _(none)_ | Failed worker accepts |
-| `rotom_controller_accepts_total` | Counter | _(none)_ | Controller connection accepts |
-| `rotom_controller_accept_fails_total` | Counter | _(none)_ | Failed controller accepts |
+| `rotom_ng_device_control_accepts_total` | Counter | _(none)_ | Device control connection accepts |
+| `rotom_ng_device_control_accept_fails_total` | Counter | _(none)_ | Failed device control accepts |
+| `rotom_ng_worker_accepts_total` | Counter | _(none)_ | Worker connection accepts |
+| `rotom_ng_worker_accept_fails_total` | Counter | _(none)_ | Failed worker accepts |
+| `rotom_ng_controller_accepts_total` | Counter | _(none)_ | Controller connection accepts |
+| `rotom_ng_controller_accept_fails_total` | Counter | _(none)_ | Failed controller accepts |
 
 **Worker request/response metrics:**
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `rotom_worker_requests_total` | Counter | `method` | Total worker requests |
-| `rotom_worker_responses_total` | Counter | `method`, `status`, `error` | Total worker responses |
-| `rotom_worker_response_duration_seconds` | Histogram | `method`, `status` | Worker response latency |
-| `rotom_worker_dropped_responses_total` | Counter | _(none)_ | Dropped worker responses |
+| `rotom_ng_worker_requests_total` | Counter | `method` | Total worker requests |
+| `rotom_ng_worker_responses_total` | Counter | `method`, `status`, `error` | Total worker responses |
+| `rotom_ng_worker_response_duration_seconds` | Histogram | `method`, `status` | Worker response latency |
+| `rotom_ng_worker_dropped_responses_total` | Counter | _(none)_ | Dropped worker responses |
 
 **Controller metrics:**
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `rotom_controller_connections` | Gauge | `user_agent` | Active controller connections by user agent |
+| `rotom_ng_controller_connections` | Gauge | `user_agent` | Active controller connections by user agent |
 
 **RPC metrics:**
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `rotom_rpc_requests_total` | Counter | _(none)_ | Total RPC requests |
-| `rotom_rpc_request_duration_seconds` | Histogram | _(none)_ | RPC request latency |
+| `rotom_ng_rpc_requests_total` | Counter | _(none)_ | Total RPC requests |
+| `rotom_ng_rpc_request_duration_seconds` | Histogram | _(none)_ | RPC request latency |
 
 **Application lifecycle metrics:**
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `rotom_app_startups_total` | Counter | `version` | Application startups |
-| `rotom_config_reloads_total` | Counter | `version` | Successful config reloads |
+| `rotom_ng_app_startups_total` | Counter | `version` | Application startups |
+| `rotom_ng_config_reloads_total` | Counter | `version` | Successful config reloads |
 
 **Go runtime metrics:**
 
 | Metric | Description |
 |--------|-------------|
-| `rotom_go_*` | Go runtime statistics (goroutines, GC, memory) |
-| `rotom_process_*` | Process metrics (CPU, memory, file descriptors) |
+| `rotom_ng_go_*` | Go runtime statistics (goroutines, GC, memory) |
+| `rotom_ng_process_*` | Process metrics (CPU, memory, file descriptors) |
 
 These replace the Node.js default metrics from OG.
 
 ### Metrics Configuration
+
+All NG metrics use the `rotom_ng` namespace prefix by default (configurable via `prometheus.namespace` in the config file).
 
 OG exposed metrics unconditionally at `/metrics`. NG requires explicit enablement:
 
