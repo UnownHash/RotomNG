@@ -1,0 +1,13 @@
+services:
+  rotom-ng:
+    image: ghcr.io/unownhash/rotomng/rotom-ng:main
+    container_name: rotom-ng
+    restart: unless-stopped
+    volumes:
+      - ${PWD}/configs:/rotom-ng/configs
+      - ${PWD}/logs:/rotom-ng/logs
+      - ${PWD}/jobs:/rotom-ng/jobs
+    ports:
+      - "7070:7070"
+      - "7071:7071"
+      - "7072:7072"

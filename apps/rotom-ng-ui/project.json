@@ -1,0 +1,64 @@
+{
+  "name": "rotom-ng-ui",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/rotom-ng-ui/src",
+  "projectType": "application",
+  "tags": [],
+  "targets": {
+    "prebuild": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node -p \"'export const APP_VERSION = \\\"' + require('fs').readFileSync('../../apps/rotom-ng/app/version/version.txt', 'utf8').trim() + '\\\";'\" > src/version.ts",
+        "cwd": "apps/rotom-ng-ui"
+      },
+      "outputs": ["{projectRoot}/src/version.ts"]
+    },
+    "dev": {
+      "executor": "@nx/vite:dev-server",
+      "defaultConfiguration": "development",
+      "dependsOn": ["prebuild"],
+      "options": { "buildTarget": "rotom-ng-ui:build" },
+      "configurations": {
+        "development": { "buildTarget": "rotom-ng-ui:build:development" },
+        "production": { "buildTarget": "rotom-ng-ui:build:production" }
+      }
+    },
+    "build": {
+      "executor": "@nx/vite:build",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "dependsOn": ["prebuild"],
+      "options": {
+        "outputPath": "libs/rotom_ui/static",
+        "configFile": "apps/rotom-ng-ui/vite.config.mts"
+      },
+      "configurations": {
+        "development": { "mode": "development", "sourcemap": true },
+        "production": { "mode": "production", "sourcemap": false }
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "inputs": ["default", "{workspaceRoot}/biome.json"],
+      "cache": true,
+      "options": {
+        "command": "bunx biome lint .",
+        "cwd": "apps/rotom-ng-ui"
+      }
+    },
+    "format": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx biome format --write .",
+        "cwd": "apps/rotom-ng-ui"
+      }
+    },
+    "check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx biome check --write .",
+        "cwd": "apps/rotom-ng-ui"
+      }
+    }
+  }
+}

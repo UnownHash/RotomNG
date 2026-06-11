@@ -1,0 +1,15 @@
+{
+  "name": "@rotom-ng/rotom-ng-ui",
+  "version": "0.0.0",
+  "scripts": {
+    "build": "nx run rotom-ng-ui:build",
+    "build:dev": "nx run rotom-ng-ui:build:development",
+    "dev": "nx run rotom-ng-ui:dev-server",
+    "lint": "nx run rotom-ng-ui:lint"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
+  }
+}

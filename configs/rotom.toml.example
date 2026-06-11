@@ -1,0 +1,72 @@
+# Example configuration file for Rotom
+#
+# Copy this file to rotom.toml and modify as needed.
+#
+# All sections are optional - if not specified, sensible defaults will be used.
+
+# Device listener configuration (optional)
+# Handles connections from mitm devices (e.g., RealDeviceMap devices)
+[device_listener]
+address = ":7070"  # Default: ":7070"
+# secret = "your-device-secret-here"  # Optional authentication secret for device connections
+
+# Controller listener configuration (optional)
+# Handles connections from Dragonite or other controllers
+[controller_listener]
+address = ":7071"  # Default: ":7071"
+# secret = "your-controller-secret-here"  # Optional authentication secret for controller connections
+
+# HTTP listener configuration (optional)
+# Provides REST API endpoints as well as the web UI
+[http_listener]
+address = ":7072"  # Default: ":7072"
+# secret = "your-api-secret-here"  # Optional authentication secret for API access
+
+# Rate limiting configuration (optional)
+# Controls how frequently a single device's workers can be selected
+# Default is no rate limiting.
+[rate_limit]
+enable = false       # Enable device selection rate limiting
+max_selections = 10  # Maximum number of selections per duration
+duration = "1m"      # Time window for rate limiting (e.g., "30s", "1m", "5m")
+
+# Worker rate limiting (optional, independent of device rate limiting)
+# worker_rate_limit_enabled = false  # Enable per-worker selection rate limiting
+# max_worker_selections = 5          # Maximum number of times a single worker can be selected per window
+# worker_duration = "1m"             # Worker rate limit time window (e.g., "30s", "1m", "5m")
+
+# Jobs configuration (optional)
+# Controls job file handling and storage
+[jobs]
+enable = false  # Enable the jobs system, if your mitm supports it (default: false)
+path = "./jobs" # Directory path for job files (default: "./jobs")
+
+# Logging configuration (optional)
+[logging]
+level = "info"          # Log level: panic, fatal, error, warn, warning, info, debug, trace (default: "info")
+format = "plain"        # Log format: plain, json (default: "plain")
+no_console_log = false  # Disable console logging, only log to file (default: false)
+
+# File logging configuration (optional)
+# File logging is enabled by default, writing to ./logs/rotom-ng.log
+# To disable file logging, set disable = true
+[logging.file]
+# disable = false                    # Set to true to disable file logging (default: false)
+# path = "./logs/rotom-ng.log"       # Full path to log file (default: "./logs/rotom-ng.log")
+# max_size_mb = 512                  # Maximum size in MB before rotation (default: 0 = no limit)
+# max_backups = 30                   # Number of old log files to keep (default: 0 = keep all)
+# max_age_days = 30                  # Maximum age in days to keep log files (default: 0 = no age limit)
+# compress = false                   # Compress rotated log files (default: false)
+
+# Prometheus metrics configuration (optional)
+[prometheus]
+enable = false  # Enable Prometheus metrics endpoint (default: false)
+
+# Performance tuning options (optional)
+[tuning]
+disable_worker_stats = false  # Enable to provide a slight speedup at the cost of losing worker request stats in prometheus and the ui (default: false)
+
+# Global shutdown timeout (optional)
+# Applies to all services - device, controller, and HTTP listeners
+# Default: "5s"
+shutdown_timeout = "5s"

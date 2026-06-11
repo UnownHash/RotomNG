@@ -1,0 +1,32 @@
+{
+  "name": "base-ui",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/base-ui/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "inputs": ["default", "{workspaceRoot}/biome.json"],
+      "cache": true,
+      "options": {
+        "command": "bunx biome lint .",
+        "cwd": "libs/base-ui"
+      }
+    },
+    "format": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx biome format --write .",
+        "cwd": "libs/base-ui"
+      }
+    },
+    "check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx biome check --write .",
+        "cwd": "libs/base-ui"
+      }
+    }
+  }
+}

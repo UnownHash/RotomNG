@@ -1,0 +1,5 @@
+{
+  "id": "whoami",
+  "description": "execute 'whoami'",
+  "exec": "whoami"
+}

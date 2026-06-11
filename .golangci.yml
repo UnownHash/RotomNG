@@ -1,0 +1,135 @@
+version: "2"
+
+run:
+  timeout: 10m
+  tests: true
+
+linters:
+  # Start from ALL linters, then disable what doesn't apply
+  default: all
+  disable:
+    # Deprecated linters
+    - gomodguard
+    - wsl
+
+    # Not applicable to this project
+    - arangolint        # no ArangoDB
+    - clickhouselint    # no ClickHouse
+    - ginkgolinter      # not using Ginkgo/Gomega
+    - zerologlint       # using slog, not zerolog
+    - testifylint       # not using testify in main code
+    - unqueryvet        # no SQL usage
+
+    # Too opinionated / noisy for a real codebase
+    - varnamelen        # short var names are idiomatic Go
+    - exhaustruct       # requiring all struct fields is impractical
+    - lll               # line length enforcement is too rigid
+    - mnd               # magic number detection is overly aggressive
+    - wsl_v5            # whitespace style is too opinionated
+    - nlreturn          # newline before return is subjective
+    - godox             # we want TODO/FIXME comments in code
+    - funlen            # function length limits are arbitrary
+    - gocognit          # cognitive complexity limits are debatable
+    - cyclop            # cyclomatic complexity - use gocyclo instead if needed
+    - maintidx          # maintainability index is noisy
+    - depguard          # no import allowlist needed
+    - gomoddirectives   # no restrictions on go.mod directives
+    - ireturn           # returning interfaces is sometimes correct
+    - goheader          # no file header requirement
+    - tagliatelle       # struct tag naming convention is project-specific
+    - noinlineerr       # inline error handling is idiomatic
+    - protogetter       # direct proto field access is fine in this project
+    - err113            # too strict; errorlint covers the important parts
+    - testpackage       # tests intentionally use internal package access
+    - nonamedreturns    # named returns are acceptable for documentation
+    - containedctx      # handlers store server-lifetime ctx intentionally
+    - gochecknoglobals  # package-level vars for pools/lookups are idiomatic
+    - interfacebloat    # large interfaces are architectural in this project
+
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Fprint
+        - (*net.Conn).SetReadDeadline
+        - (*github.com/fasthttp/websocket.Conn).SetReadDeadline
+        - (*github.com/fasthttp/websocket.Conn).WriteControl
+    wrapcheck:
+      ignore-package-globs:
+        - github.com/UnownHash/RotomNG/*
+      ignore-interface-regexps:
+        - "context\\.Context"
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+        - singleCaseSwitch
+    gocyclo:
+      min-complexity: 20
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    nestif:
+      min-complexity: 5
+    nakedret:
+      max-func-lines: 30
+
+  exclusions:
+    generated: lax
+    paths:
+      - node_modules
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - bodyclose
+          - forcetypeassert
+          - goconst
+          - dupl
+          - funlen
+          - contextcheck
+          - containedctx
+          - gochecknoglobals
+          - gocyclo
+          - nestif
+          - paralleltest
+          - tparallel
+          - unparam
+          - gosec
+          - noctx
+          - makezero
+          - nonamedreturns
+          - wrapcheck
+          - err113
+      # libs/ws is a thin wrapper around websocket — wrapping adds noise
+      - path: libs/ws/
+        linters:
+          - wrapcheck
+      # testutil is test infrastructure
+      - path: libs/testutil/
+        linters:
+          - wrapcheck
+          - gosec
+      # Protobuf-generated methods use Id/Rpc naming we can't change
+      - linters:
+          - revive
+        text: 'GetWorkerId should be GetWorkerID|GetDeviceId should be GetDeviceID'
+      # SetReadDeadline errors are best-effort before close
+      - linters:
+          - errcheck
+        text: 'SetReadDeadline.* is not checked'
+      # Close() errors are generally fine to ignore
+      - linters:
+          - errcheck
+        text: '\.Close[A-Za-z]*` is not checked|\.Close\(.*\) is not checked'
+      # libs/ws internal error handling is intentional (best-effort close/deadline)
+      - path: libs/ws/wsconn\.go
+        linters:
+          - errcheck
+          - gosec
+        text: 'is not checked|Errors unhandled'
+
+formatters:
+  enable:
+    - gofmt

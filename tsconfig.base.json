@@ -1,0 +1,24 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0",
+    "baseUrl": "./",
+    "declaration": false,
+    "esModuleInterop": true,
+    "importHelpers": true,
+    "lib": ["es2017", "dom"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "paths": {
+      "@rotom-ng/base-ui": ["libs/base-ui/src/index.ts"],
+      "@rotom-ng/base-ui/*": ["libs/base-ui/src/*"]
+    },
+    "rootDir": ".",
+    "skipDefaultLibCheck": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "strict": true,
+    "target": "es2015"
+  },
+  "exclude": ["node_modules", "tmp"]
+}
