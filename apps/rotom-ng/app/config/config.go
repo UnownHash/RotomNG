@@ -222,7 +222,9 @@ func (cfg *Config) Validate() error {
 
 	// Validate logging config if present
 	if cfg.Logging != nil {
-		return cfg.Logging.Validate()
+		if err := cfg.Logging.Validate(); err != nil {
+			return err
+		}
 	}
 
 	return nil

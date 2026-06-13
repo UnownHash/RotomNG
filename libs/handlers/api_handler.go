@@ -483,12 +483,11 @@ func (ah *APIHandler[C, W]) RunJob(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
-
 	jobInstances := make([]api.JobInstance, len(jobRequest.DeviceIDs))
 	for idx, deviceID := range jobRequest.DeviceIDs {
+		// jobs run async, so we need to use a Background context, not http request context.
 		jobInstances[idx] = ah.apiConverter.NewJobInstanceFromJobInstance(
-			ah.connectionManager.RunJob(ctx, jobID, deviceID, time.Minute),
+			ah.connectionManager.RunJob(context.Background(), jobID, deviceID, time.Minute),
 		)
 	}
 

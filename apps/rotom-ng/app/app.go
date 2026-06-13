@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -108,6 +109,8 @@ type App struct {
 	logger   *slog.Logger
 	levelVar *slog.LevelVar
 	closer   io.Closer
+
+	shutdownTimeout atomic.Int64 // nanoseconds
 
 	// dependencies initialized in Init()
 	ctx    context.Context
@@ -246,6 +249,7 @@ func (a *App) Init() error {
 	a.logger.LogAttrs(context.Background(), slog.LevelInfo, "starting RotomNG", slog.String("version", appVersion), slog.String("git_sha", gitSHA))
 
 	a.ctx, a.cancel = context.WithCancel(context.Background())
+	a.setShutdownTimeout(a.cfg.ShutdownTimeout)
 
 	a.bufferPool = bufferpool.New(8 * 1024)
 	a.statsCollector = stats.NewPromStatsCollector(a.cfg.Prometheus.Namespace)
@@ -399,6 +403,14 @@ func (a *App) Init() error {
 	return nil
 }
 
+func (a *App) setShutdownTimeout(d time.Duration) {
+	a.shutdownTimeout.Store(int64(d))
+}
+
+func (a *App) getShutdownTimeout() time.Duration {
+	return time.Duration(a.shutdownTimeout.Load())
+}
+
 func (a *App) reload() error {
 	cfg, err := a.flagCfg.ReloadConfig()
 	if err != nil {
@@ -458,6 +470,8 @@ func (a *App) reload() error {
 	a.deviceAuthMiddleware.SetSecret(cfg.DeviceListener.Secret)
 	a.httpAuthMiddleware.SetSecret(cfg.HTTPListener.Secret)
 
+	a.setShutdownTimeout(cfg.ShutdownTimeout)
+
 	newLevel, err := logging.ParseSlogLevel(cfg.Logging.Level)
 	if err != nil {
 		a.logger.LogAttrs(context.Background(), slog.LevelError, "failed to set log level", slog.String("error", err.Error()))
@@ -471,10 +485,12 @@ func (a *App) reload() error {
 func (a *App) shutdown(wg *sync.WaitGroup) {
 	a.logger.LogAttrs(context.Background(), slog.LevelInfo, "shutting down")
 
+	shutdownTimeout := a.getShutdownTimeout()
+
 	shutdownCh := make(chan struct{})
 	go func() {
 		defer close(shutdownCh)
-		timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), a.cfg.ShutdownTimeout)
+		timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer timeoutCancel()
 
 		var shutdownWg sync.WaitGroup
@@ -499,7 +515,7 @@ func (a *App) shutdown(wg *sync.WaitGroup) {
 	select {
 	case <-shutdownCh:
 		a.logger.LogAttrs(context.Background(), slog.LevelInfo, "shutdown complete")
-	case <-time.After(a.cfg.ShutdownTimeout + (100 * time.Millisecond)):
+	case <-time.After(shutdownTimeout + (100 * time.Millisecond)):
 		a.logger.LogAttrs(context.Background(), slog.LevelInfo, "shutdown timed out")
 	}
 

@@ -1,6 +1,6 @@
 # Example configuration file for Rotom
 #
-# Copy this file to rotom.toml and modify as needed.
+# Copy this file to rotom-ng.toml and modify as needed.
 #
 # All sections are optional - if not specified, sensible defaults will be used.
 
