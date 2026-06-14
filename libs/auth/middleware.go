@@ -26,11 +26,13 @@ func NewMiddleware(expectedSecret string) *Middleware {
 // Handler is a gin middleware that checks the X-Rotom-Secret header.
 func (mw *Middleware) Handler(ginContext *gin.Context) {
 	expectedSecret := mw.secret.Load()
-	providedSecret := ginContext.GetHeader("X-Rotom-Secret")
-	if expectedSecret != nil && *expectedSecret != "" && subtle.ConstantTimeCompare([]byte(providedSecret), []byte(*expectedSecret)) != 1 {
-		ginContext.Status(http.StatusUnauthorized)
-		ginContext.Abort()
-		return
+	if expectedSecret != nil && *expectedSecret != "" {
+		providedSecret := ginContext.GetHeader("X-Rotom-Secret")
+		if subtle.ConstantTimeCompare([]byte(providedSecret), []byte(*expectedSecret)) != 1 {
+			ginContext.Status(http.StatusUnauthorized)
+			ginContext.Abort()
+			return
+		}
 	}
 	ginContext.Next()
 }
