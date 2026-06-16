@@ -31,8 +31,6 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Install protoc-gen-go
         run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-      - name: Generate code
-        run: go generate ./apps/rotom-ng/... ./libs/...
       - name: Install dependencies
         run: go get ./apps/rotom-ng/...
       - name: Test with the Go CLI
@@ -61,8 +59,6 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Install protoc-gen-go
         run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-      - name: Generate code
-        run: go generate ./apps/rotom-ng/... ./libs/...
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:

@@ -5,8 +5,10 @@ all: $(ALL)
 deps:
 	@if [ ! -f ../../vendor/modules.txt ]; then go mod download; fi
 
-rotom-ng: rotom-ng-ui deps
+generate:
 	@go generate ./libs/... ./apps/rotom-ng/...
+
+rotom-ng: rotom-ng-ui deps
 	@CGO_ENABLED=0 go build -ldflags="-s -w" -o rotom-ng ./apps/rotom-ng
 	@echo rotom-ng has been built.
 

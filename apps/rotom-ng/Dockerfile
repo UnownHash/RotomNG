@@ -43,7 +43,6 @@ COPY libs libs
 COPY --from=node-builder /app/libs/rotom_ui/static libs/rotom_ui/static
 COPY apps/rotom-ng apps/rotom-ng
 COPY .git .git
-RUN go generate ./apps/rotom-ng/... ./libs/...
 RUN CGO_ENABLED=0 go build -a -ldflags='-s -w' -o rotom-ng ./apps/rotom-ng
 
 # Final runtime stage
