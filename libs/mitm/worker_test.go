@@ -150,7 +150,7 @@ func TestNewWorker(t *testing.T) {
 		versionCode: 42,
 	}
 
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	if worker.ID() != "worker-1" {
 		t.Errorf("Id() = %q, want %q", worker.ID(), "worker-1")
@@ -181,7 +181,7 @@ func TestWorker_IsZero(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 	if worker.IsZero() {
 		t.Error("non-nil worker should not be zero")
 	}
@@ -205,7 +205,7 @@ func TestWorker_WebsocketStats(t *testing.T) {
 	}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	worker.SetPreviousWSConnStats(ws.ConnStats{
 		MessagesReceived: 5,
@@ -225,7 +225,7 @@ func TestWorker_GetModeInfo_Unset(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	info := worker.GetModeInfo()
 	if info.DisableStats != false {
@@ -240,7 +240,7 @@ func TestWorker_RequestManagement(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 	worker.requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
 
 	// Store a request
@@ -277,7 +277,7 @@ func TestWorker_DoneRequests(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 	worker.requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
 
 	worker.requestTracker.Add(1, tracking.Request[RequestData]{StartTime: time.Now(), MethodName: "M1"})
@@ -326,7 +326,7 @@ func TestWorker_Close(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	// Set up a controller so Close doesn't panic on nil interface
 	ctrl := &mockController{id: "ctrl-1", isZero: true}
@@ -355,7 +355,7 @@ func TestWorker_Close_WithActiveController(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	ctrl := &mockController{id: "ctrl-1", isZero: false}
 	worker.modeInfo.Store(&WorkerModeInfo{
@@ -373,7 +373,7 @@ func TestWorker_ReconnectSession(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	if worker.reconnectSession.Load() {
 		t.Error("reconnectSession should be false initially")

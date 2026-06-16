@@ -1,23 +1,18 @@
 import { TimeWindowStatsGrid } from "../components/time-window-stats-grid";
+import { useWorkerStatsEnabled } from "../hooks/use-config";
 import type { Status } from "../types";
-import { calculateWorkerMetrics } from "../utils/worker-calculations";
+import {
+  calculateWorkerMetrics,
+  requestStatsValues,
+} from "../utils/worker-calculations";
 
-export const WorkerGrids = ({ devices }: Pick<Status, "devices">) => {
-  const {
-    workersInUse,
-    workersAvailable,
-    workersEnabled,
-    workersTotal,
-    workersRequestsPerSecond30s,
-    workersAvgRequestDuration30s,
-    workersRequestsPerSecond1m,
-    workersAvgRequestDuration1m,
-    workersRequestsPerSecond5m,
-    workersAvgRequestDuration5m,
-    workersRequestsPerSecond15m,
-    workersAvgRequestDuration15m,
-    hasWorkerStats,
-  } = calculateWorkerMetrics(devices);
+export const WorkerGrids = ({
+  devices,
+  global_stats,
+}: Pick<Status, "devices" | "global_stats">) => {
+  const workerStatsEnabled = useWorkerStatsEnabled();
+  const { workersInUse, workersAvailable, workersEnabled, workersTotal } =
+    calculateWorkerMetrics(devices);
 
   return (
     <div className="mb-4">
@@ -31,15 +26,8 @@ export const WorkerGrids = ({ devices }: Pick<Status, "devices">) => {
           workersEnabled,
           workersTotal,
         ]}
-        requestsPerSecond30s={workersRequestsPerSecond30s}
-        requestsPerSecond1m={workersRequestsPerSecond1m}
-        requestsPerSecond5m={workersRequestsPerSecond5m}
-        requestsPerSecond15m={workersRequestsPerSecond15m}
-        avgRequestDuration30s={workersAvgRequestDuration30s}
-        avgRequestDuration1m={workersAvgRequestDuration1m}
-        avgRequestDuration5m={workersAvgRequestDuration5m}
-        avgRequestDuration15m={workersAvgRequestDuration15m}
-        hasStats={hasWorkerStats}
+        {...requestStatsValues(global_stats)}
+        hasStats={workerStatsEnabled}
         hideIfNoStats={true}
       />
     </div>

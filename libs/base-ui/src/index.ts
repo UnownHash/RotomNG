@@ -40,7 +40,7 @@ export {
 } from "./components/ui/tooltip";
 export { ControllersPage } from "./controllers/controllers-page";
 export { DevicePage } from "./devices/device-page";
-export { useConfig } from "./hooks/use-config";
+export { useConfig, useWorkerStatsEnabled } from "./hooks/use-config";
 export { useTablePagination } from "./hooks/use-table-pagination";
 export { JobsPage } from "./jobs/jobs-page";
 export { Box } from "./layout/box";
@@ -63,10 +63,10 @@ export {
 export { formatMemory } from "./lib/format-memory";
 export { createAppQueryClient } from "./lib/query-client";
 export {
-  POLL_INTERVAL_MS,
   configQuery,
   jobInstancesQuery,
   jobsQuery,
+  POLL_INTERVAL_MS,
   statusQuery,
 } from "./lib/query-options";
 export { cn } from "./lib/utils";

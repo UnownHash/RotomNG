@@ -7,6 +7,7 @@ import (
 
 	"github.com/UnownHash/RotomNG/libs/connections"
 	"github.com/UnownHash/RotomNG/libs/jobs"
+	"github.com/UnownHash/RotomNG/libs/stats"
 	"github.com/UnownHash/RotomNG/libs/ws"
 )
 
@@ -246,11 +247,10 @@ func (converter *Converter[D, W, C]) NewControllerResponseFromController(control
 	}
 }
 
-// CreateTimeWindowedStatsFromWorker creates time-windowed statistics from a worker.
-// Windows are returned in order: 30s, 1m, 5m, 15m (matching mitm.StatsWindows).
-func (converter *Converter[D, W, C]) CreateTimeWindowedStatsFromWorker(worker W) *TimeWindowedStats {
-	s := worker.GetRequestStats()
-
+// CreateTimeWindowedStats converts windowed count/duration stats into the API
+// representation. Windows must be in order: 30s, 1m, 5m, 15m (matching
+// mitm.StatsWindows).
+func (converter *Converter[D, W, C]) CreateTimeWindowedStats(s stats.CountDurationWindows[uint64]) *TimeWindowedStats {
 	return &TimeWindowedStats{
 		RequestsRateOver30Seconds: s.Counts[0].RatePerSecond(),
 		RequestsRateOver1Min:      s.Counts[1].RatePerSecond(),
@@ -261,6 +261,12 @@ func (converter *Converter[D, W, C]) CreateTimeWindowedStatsFromWorker(worker W)
 		RequestMsAvgOver5Min:      s.Durations[2].Avg(),
 		RequestMsAvgOver15Min:     s.Durations[3].Avg(),
 	}
+}
+
+// CreateTimeWindowedStatsFromWorker creates time-windowed statistics from a worker.
+// Windows are returned in order: 30s, 1m, 5m, 15m (matching mitm.StatsWindows).
+func (converter *Converter[D, W, C]) CreateTimeWindowedStatsFromWorker(worker W) *TimeWindowedStats {
+	return converter.CreateTimeWindowedStats(worker.GetRequestStats())
 }
 
 // NewWorkerFromWorker converts an internal worker to an Worker.
@@ -322,10 +328,15 @@ func (converter *Converter[D, W, C]) NewWorkerFromWorker(worker W, canBeUsed boo
 type StatusResponse struct {
 	Devices     []Device             `json:"devices"`
 	Controllers []ControllerResponse `json:"controllers"`
+	// GlobalStats holds aggregate request stats across all workers, including
+	// those that have since disconnected. It is the accurate source for overall
+	// req/s and avg ms, rather than summing the per-worker stats.
+	GlobalStats *TimeWindowedStats `json:"global_stats,omitempty"`
 }
 
-// StatusResponseFromDevicesAndControllers builds a StatusResponse from devices and controllers.
-func (converter *Converter[D, W, C]) StatusResponseFromDevicesAndControllers(devices []D, controllers []C) StatusResponse {
+// StatusResponseFromDevicesAndControllers builds a StatusResponse from devices,
+// controllers, and the global aggregate request stats.
+func (converter *Converter[D, W, C]) StatusResponseFromDevicesAndControllers(devices []D, controllers []C, globalStats stats.CountDurationWindows[uint64]) StatusResponse {
 	apiDevices := make([]Device, len(devices))
 	for idx, device := range devices {
 		apiDevices[idx] = converter.NewDeviceFromDevice(device, true, true)
@@ -337,6 +348,7 @@ func (converter *Converter[D, W, C]) StatusResponseFromDevicesAndControllers(dev
 	return StatusResponse{
 		Devices:     apiDevices,
 		Controllers: apiControllers,
+		GlobalStats: converter.CreateTimeWindowedStats(globalStats),
 	}
 }
 

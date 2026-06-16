@@ -16,7 +16,9 @@ import (
 	"github.com/UnownHash/RotomNG/libs/connections"
 	"github.com/UnownHash/RotomNG/libs/errorutil"
 	"github.com/UnownHash/RotomNG/libs/jobs"
+	"github.com/UnownHash/RotomNG/libs/mitm"
 	"github.com/UnownHash/RotomNG/libs/settings"
+	"github.com/UnownHash/RotomNG/libs/stats"
 )
 
 // Constants for repeated string literals used in JSON responses and log fields.
@@ -51,6 +53,11 @@ type APIHandlerConfig[C Controller, W MITMWorker] struct {
 	ConnectionManager *connections.ConnectionManager[C, W]
 	JobsManager       *jobs.Manager
 	APIConverter      *api.Converter[*connections.Device[W], W, C]
+	// GlobalRequestStats is the shared collector that workers record request
+	// stats into. It is read here to report aggregate req/s and avg ms in the
+	// status reply, which stays accurate even as workers disconnect. If nil, an
+	// empty collector is used.
+	GlobalRequestStats *stats.CountDurationCollector[uint64]
 }
 
 // Init initializes the settings container with the given settings.
@@ -74,23 +81,28 @@ type apiHandlerSettingsContainer = settings.Container[APIHandlerSettings]
 
 // APIHandler handles HTTP API requests for devices, controllers, jobs, and status.
 type APIHandler[C Controller, W MITMWorker] struct {
-	ctx               context.Context
-	logger            *slog.Logger
-	getSettings       func() APIHandlerSettings
-	connectionManager *connections.ConnectionManager[C, W]
-	jobsManager       *jobs.Manager
-	apiConverter      *api.Converter[*connections.Device[W], W, C]
+	ctx                context.Context
+	logger             *slog.Logger
+	getSettings        func() APIHandlerSettings
+	connectionManager  *connections.ConnectionManager[C, W]
+	jobsManager        *jobs.Manager
+	apiConverter       *api.Converter[*connections.Device[W], W, C]
+	globalRequestStats *stats.CountDurationCollector[uint64]
 }
 
 // NewAPIHandler creates a new APIHandler instance.
 func NewAPIHandler[C Controller, W MITMWorker](ctx context.Context, cfg APIHandlerConfig[C, W]) *APIHandler[C, W] {
+	if cfg.GlobalRequestStats == nil {
+		cfg.GlobalRequestStats = mitm.NewRequestStatsCollector()
+	}
 	return &APIHandler[C, W]{
-		ctx:               ctx,
-		logger:            cfg.Logger,
-		getSettings:       cfg.GetSettings,
-		connectionManager: cfg.ConnectionManager,
-		jobsManager:       cfg.JobsManager,
-		apiConverter:      cfg.APIConverter,
+		ctx:                ctx,
+		logger:             cfg.Logger,
+		getSettings:        cfg.GetSettings,
+		connectionManager:  cfg.ConnectionManager,
+		jobsManager:        cfg.JobsManager,
+		apiConverter:       cfg.APIConverter,
+		globalRequestStats: cfg.GlobalRequestStats,
 	}
 }
 
@@ -499,7 +511,8 @@ func (ah *APIHandler[C, W]) RunJob(c *gin.Context) {
 // GetStatus handles GET /api/status.
 func (ah *APIHandler[C, W]) GetStatus(c *gin.Context) {
 	status := ah.connectionManager.GetStatus()
-	response := ah.apiConverter.StatusResponseFromDevicesAndControllers(status.Devices, status.Controllers)
+	globalStats := ah.globalRequestStats.GetWindows(mitm.StatsWindows...)
+	response := ah.apiConverter.StatusResponseFromDevicesAndControllers(status.Devices, status.Controllers, globalStats)
 	c.JSON(http.StatusOK, response)
 }
 

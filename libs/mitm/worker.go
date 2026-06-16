@@ -62,10 +62,29 @@ type Worker struct {
 
 	// TimeWindowedStats: count+duration ring buffer, one lock for both metrics.
 	requestStats *stats.CountDurationCollector[uint64]
+	// globalRequestStats, when set, receives the same request stats as
+	// requestStats so aggregate stats survive individual workers going away.
+	globalRequestStats *stats.CountDurationCollector[uint64]
+}
+
+// Request stats ring buffer geometry, shared by per-worker and global collectors.
+const (
+	requestStatsMaxWindow      = 15 * time.Minute
+	requestStatsBucketDuration = 2 * time.Second
+)
+
+// NewRequestStatsCollector creates a request stats collector with the standard
+// geometry used for both per-worker and global request stats. The windows
+// returned by GetWindows must use StatsWindows.
+func NewRequestStatsCollector() *stats.CountDurationCollector[uint64] {
+	return stats.NewCountDurationCollector[uint64](requestStatsMaxWindow, requestStatsBucketDuration)
 }
 
 // NewWorker creates a new Worker from a WebSocket connection and welcome message.
-func NewWorker(wsConn WorkerWSConn, welcomeMsg WorkerWelcomeMessage, statsCollector WorkerStatsCollector) *Worker {
+// globalRequestStats, when non-nil, is a shared collector that receives the same
+// request stats as the worker's own, so aggregate stats persist even after the
+// worker that produced them disconnects. It is owned by the caller.
+func NewWorker(wsConn WorkerWSConn, welcomeMsg WorkerWelcomeMessage, statsCollector WorkerStatsCollector, globalRequestStats *stats.CountDurationCollector[uint64]) *Worker {
 	return &Worker{
 		id:             welcomeMsg.GetWorkerId(),
 		origin:         welcomeMsg.GetOrigin(),
@@ -77,7 +96,8 @@ func NewWorker(wsConn WorkerWSConn, welcomeMsg WorkerWelcomeMessage, statsCollec
 		wsConn:         wsConn,
 		statsCollector: statsCollector,
 
-		requestStats: stats.NewCountDurationCollector[uint64](15*time.Minute, 2*time.Second),
+		requestStats:       NewRequestStatsCollector(),
+		globalRequestStats: globalRequestStats,
 	}
 }
 
@@ -387,6 +407,9 @@ func (worker *Worker) processResponseAndUpdateStats(payload []byte) {
 	// Record stats in TimeWindowedStats fields
 	durationMs := uint64(max(duration.Milliseconds(), 0))
 	worker.requestStats.Add(1, durationMs)
+	if worker.globalRequestStats != nil {
+		worker.globalRequestStats.Add(1, durationMs)
+	}
 }
 
 // ReadWorkerWelcomeMessage reads and decodes the initial welcome message from a worker connection.

@@ -8,7 +8,7 @@ import { MemoizedWorkersTable as WorkersTable } from "./workers-table";
 export const WorkersPage = () => {
   const { isLoading, isFetching, error, data, isSuccess } = useQuery({
     ...statusQuery(),
-    select: (s) => s.devices,
+    select: (s) => ({ devices: s.devices, global_stats: s.global_stats }),
   });
 
   if (isLoading) {
@@ -40,10 +40,10 @@ export const WorkersPage = () => {
             <Loader2 className="size-6 animate-spin text-(--brand)" />
           )}
         </div>
-        <WorkerGrids devices={data} />
+        <WorkerGrids devices={data.devices} global_stats={data.global_stats} />
       </div>
       <div>
-        <WorkersTable devices={data} />
+        <WorkersTable devices={data.devices} />
       </div>
     </div>
   );

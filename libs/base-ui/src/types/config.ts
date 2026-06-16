@@ -7,6 +7,8 @@ export interface RateLimitConfig {
 export interface TuningConfig {
   profiling: boolean;
   worker_selection_type?: string;
+  // Only present (true) when worker stats collection is disabled server-side.
+  disable_worker_stats?: boolean;
 }
 
 export interface JobsConfig {

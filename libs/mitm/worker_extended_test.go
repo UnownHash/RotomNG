@@ -25,7 +25,7 @@ func TestWorker_Platform(t *testing.T) {
 		workerID: "w1",
 		platform: protos.WelcomeMessage_ANDROID,
 	}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	if worker.Platform() != protos.WelcomeMessage_ANDROID {
 		t.Errorf("Platform() = %v, want ANDROID", worker.Platform())
@@ -36,7 +36,7 @@ func TestWorker_WriteAsync(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	err := worker.WriteAsync(context.Background(), ws.MessageBinary, []byte("test"))
 	if err != nil {
@@ -48,7 +48,7 @@ func TestWorker_WriteAsync_Error(t *testing.T) {
 	wsConn := &mockWorkerWSConn{writeErr: errors.New("write failed")}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	err := worker.WriteAsync(context.Background(), ws.MessageBinary, []byte("test"))
 	if err == nil {
@@ -61,7 +61,7 @@ func TestWorker_Reader(t *testing.T) {
 	wsConn := &mockWorkerWSConn{readerChan: readerChan}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	expected := &mockWSReader2{data: []byte("hello")}
 	readerChan <- expected
@@ -79,7 +79,7 @@ func TestWorker_Reader_Error(t *testing.T) {
 	wsConn := &mockWorkerWSConn{readerErr: errors.New("read failed")}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	_, err := worker.Reader(context.Background())
 	if err == nil {
@@ -93,7 +93,7 @@ func TestWorker_GetRequestStats(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	s := worker.GetRequestStats()
 	if len(s.Counts) != len(StatsWindows) {
@@ -118,7 +118,7 @@ func TestWorker_GetRequestMethodName(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	req := &protos.MitmRequest{Method: protos.MitmRequest_LOGIN}
 	name := worker.getRequestMethodName(req)
@@ -133,7 +133,7 @@ func TestWorker_ProcessResponseAndUpdateStats(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	worker.requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
 
@@ -167,7 +167,7 @@ func TestWorker_ProcessResponseAndUpdateStats_RPC(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	worker.requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
 	worker.requestTracker.Add(1, tracking.Request[RequestData]{StartTime: time.Now(), MethodName: "RPC_REQUEST"})
@@ -188,7 +188,7 @@ func TestWorker_ProcessResponseAndUpdateStats_InvalidProto(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 	worker.requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
 
 	// Should not panic on invalid protobuf
@@ -205,7 +205,7 @@ func TestWorker_ProcessResponseAndUpdateStats_UnknownRequest(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 	worker.requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
 
 	// Don't store any request - response should be for unknown ID
@@ -227,7 +227,7 @@ func TestWorker_ProxyController_Transparent(t *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1", origin: "origin1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	loginReq := &protos.MitmRequest{
 		Id:     1,
@@ -265,7 +265,7 @@ func TestWorker_ProxyController_Inspect(_ *testing.T) {
 	wsConn := &mockWorkerWSConn{}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1", origin: "origin1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	loginReq := &protos.MitmRequest{
 		Id:     1,
@@ -297,7 +297,7 @@ func TestWorker_ProxyController_WriteError(_ *testing.T) {
 	wsConn := &mockWorkerWSConn{writeErr: errors.New("write failed")}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1", origin: "origin1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	loginReq := &protos.MitmRequest{
 		Id:     1,
@@ -323,7 +323,7 @@ func TestWorker_Run_ForwardsToController(t *testing.T) {
 	wsConn := &mockWorkerWSConn{readerChan: readerChan}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1", origin: "origin1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	ctrl := &mockProxyController{mockController: mockController{id: "ctrl1"}}
 	worker.modeInfo.Store(&WorkerModeInfo{
@@ -355,7 +355,7 @@ func TestWorker_Run_NoModeInfo(_ *testing.T) {
 	wsConn := &mockWorkerWSConn{readerChan: readerChan}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	// Don't set modeInfo - should exit with error after first message
 	readerChan <- &mockWSReader2{data: []byte("data")}
@@ -368,7 +368,7 @@ func TestWorker_Run_ReadError(_ *testing.T) {
 	wsConn := &mockWorkerWSConn{readerErr: errors.New("read failed")}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	worker.Run(context.Background())
 	// Should exit without panic
@@ -378,7 +378,7 @@ func TestWorker_Run_ContextCanceled(_ *testing.T) {
 	wsConn := &mockWorkerWSConn{readerErr: nil}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -392,7 +392,7 @@ func TestWorker_Run_InspectMode(t *testing.T) {
 	wsConn := &mockWorkerWSConn{readerChan: readerChan}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1", origin: "origin1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	ctrl := &mockProxyController{mockController: mockController{id: "ctrl1"}}
 	worker.modeInfo.Store(&WorkerModeInfo{
@@ -429,7 +429,7 @@ func TestWorker_Run_WriteToControllerError(_ *testing.T) {
 	wsConn := &mockWorkerWSConn{readerChan: readerChan}
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
-	worker := NewWorker(wsConn, wm, sc)
+	worker := NewWorker(wsConn, wm, sc, nil)
 
 	ctrl := &mockProxyController{
 		mockController: mockController{id: "ctrl1"},

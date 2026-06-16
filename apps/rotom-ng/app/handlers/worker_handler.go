@@ -11,6 +11,7 @@ import (
 	"github.com/UnownHash/RotomNG/libs/handlers"
 	"github.com/UnownHash/RotomNG/libs/logging"
 	"github.com/UnownHash/RotomNG/libs/mitm"
+	"github.com/UnownHash/RotomNG/libs/stats"
 	"github.com/UnownHash/RotomNG/libs/ws"
 )
 
@@ -21,6 +22,11 @@ type WorkerHandlerConfig struct {
 	MITMWorkerStatsCollector MITMWorkerStatsCollector
 	ConnectionManager        WorkerConnectionManager
 	StatsCollector           WorkerStatsCollector
+	// GlobalRequestStats is the shared collector that each worker also records
+	// its request stats into, so aggregate stats persist across worker
+	// disconnects. The same collector is read by the API handler for the status
+	// reply.
+	GlobalRequestStats *stats.CountDurationCollector[uint64]
 }
 
 // WorkerHandler handles incoming MITM worker WebSocket connections.
@@ -34,6 +40,7 @@ type WorkerHandler struct {
 	mitmWorkerStatsCollector MITMWorkerStatsCollector
 	connectionManager        WorkerConnectionManager
 	statsCollector           WorkerStatsCollector
+	globalRequestStats       *stats.CountDurationCollector[uint64]
 }
 
 // NewWorkerHandler creates a new WorkerHandler with the given context and configuration.
@@ -48,6 +55,7 @@ func NewWorkerHandler(ctx context.Context, cfg WorkerHandlerConfig) *WorkerHandl
 		mitmWorkerStatsCollector: cfg.MITMWorkerStatsCollector,
 		connectionManager:        cfg.ConnectionManager,
 		statsCollector:           cfg.StatsCollector,
+		globalRequestStats:       cfg.GlobalRequestStats,
 	}
 }
 
@@ -96,7 +104,7 @@ func (handler *WorkerHandler) HandleWorker(c *gin.Context) {
 		return
 	}
 
-	worker := mitm.NewWorker(wsConn, welcomeMsg, handler.mitmWorkerStatsCollector)
+	worker := mitm.NewWorker(wsConn, welcomeMsg, handler.mitmWorkerStatsCollector, handler.globalRequestStats)
 
 	handler.statsCollector.IncrWorkersConnected(worker.Origin())
 	defer handler.statsCollector.DecrWorkersConnected(worker.Origin())

@@ -266,6 +266,11 @@ func (a *App) Init() error {
 	a.bufferPool = bufferpool.New(8 * 1024)
 	a.statsCollector = stats.NewPromStatsCollector(a.cfg.Prometheus.Namespace)
 
+	// Shared aggregate of request stats across all workers. Workers (via the
+	// worker handler) record into it; the API handler reads from it for the
+	// status reply, so the totals stay accurate even as workers disconnect.
+	globalRequestStats := mitm.NewRequestStatsCollector()
+
 	selectorSettings := getSelectorSettings(a.cfg)
 	a.selectorConfig = selector.Config{}
 	if err := a.selectorConfig.Init(selectorSettings); err != nil {
@@ -324,6 +329,7 @@ func (a *App) Init() error {
 		MITMWorkerStatsCollector: a.statsCollector,
 		ConnectionManager:        a.connectionManager,
 		StatsCollector:           a.statsCollector,
+		GlobalRequestStats:       globalRequestStats,
 	}
 	a.workerHandler = app_handlers.NewWorkerHandler(a.ctx, workerHandlerConfig)
 
@@ -374,10 +380,11 @@ func (a *App) Init() error {
 
 	a.httpAuthMiddleware = auth.NewMiddleware(a.cfg.HTTPListener.Secret)
 	a.apiHandlerConfig = handlers.APIHandlerConfig[*Controller, *MITMWorker]{
-		Logger:            a.logger.With(slog.String("component", "api")),
-		ConnectionManager: a.connectionManager,
-		JobsManager:       a.jobsManager,
-		APIConverter:      api.NewConverter[*connections.Device[*MITMWorker], *MITMWorker, *Controller](),
+		Logger:             a.logger.With(slog.String("component", "api")),
+		ConnectionManager:  a.connectionManager,
+		JobsManager:        a.jobsManager,
+		APIConverter:       api.NewConverter[*connections.Device[*MITMWorker], *MITMWorker, *Controller](),
+		GlobalRequestStats: globalRequestStats,
 	}
 	if err := a.apiHandlerConfig.Init(getBaseAPIHandlerSettings(a.cfg)); err != nil {
 		return fmt.Errorf("invalid api handler config: %w", err)

@@ -1,36 +1,45 @@
-import type { Device } from "../types";
+import type { Device, TimeWindowedStats } from "../types";
 
 export interface WorkerMetrics {
   workersInUse: number;
   workersAvailable: number;
   workersEnabled: number;
   workersTotal: number;
-  workersRequestsPerSecond30s: number;
-  workersAvgRequestDuration30s: number;
-  workersRequestsPerSecond1m: number;
-  workersAvgRequestDuration1m: number;
-  workersRequestsPerSecond5m: number;
-  workersAvgRequestDuration5m: number;
-  workersRequestsPerSecond15m: number;
-  workersAvgRequestDuration15m: number;
-  hasWorkerStats: boolean;
 }
+
+// RequestStatsValues maps directly onto TimeWindowStatsGrid's request-stat props.
+export interface RequestStatsValues {
+  requestsPerSecond30s: number;
+  requestsPerSecond1m: number;
+  requestsPerSecond5m: number;
+  requestsPerSecond15m: number;
+  avgRequestDuration30s: number;
+  avgRequestDuration1m: number;
+  avgRequestDuration5m: number;
+  avgRequestDuration15m: number;
+}
+
+// requestStatsValues converts the server's global aggregate request stats into
+// the values displayed by TimeWindowStatsGrid. The global aggregate is accurate
+// even as workers connect and disconnect, unlike summing per-worker stats.
+export const requestStatsValues = (
+  stats?: TimeWindowedStats,
+): RequestStatsValues => ({
+  requestsPerSecond30s: stats?.requests_rate_over_30_seconds ?? 0,
+  requestsPerSecond1m: stats?.requests_rate_over_1_min ?? 0,
+  requestsPerSecond5m: stats?.requests_rate_over_5_min ?? 0,
+  requestsPerSecond15m: stats?.requests_rate_over_15_min ?? 0,
+  avgRequestDuration30s: stats?.request_ms_avg_over_30_seconds ?? 0,
+  avgRequestDuration1m: stats?.request_ms_avg_over_1_min ?? 0,
+  avgRequestDuration5m: stats?.request_ms_avg_over_5_min ?? 0,
+  avgRequestDuration15m: stats?.request_ms_avg_over_15_min ?? 0,
+});
 
 export const calculateWorkerMetrics = (devices: Device[]): WorkerMetrics => {
   let workersInUse = 0;
   let workersAvailable = 0;
   let workersEnabled = 0;
   let workersTotal = 0;
-  let workersRequestsPerSecond30s = 0;
-  let workersAvgRequestDuration30s = 0;
-  let workersRequestsPerSecond1m = 0;
-  let workersAvgRequestDuration1m = 0;
-  let workersRequestsPerSecond5m = 0;
-  let workersAvgRequestDuration5m = 0;
-  let workersRequestsPerSecond15m = 0;
-  let workersAvgRequestDuration15m = 0;
-  let hasWorkerStats = false;
-  let workersWithStats = 0;
 
   devices.forEach((device) => {
     (device.workers || []).forEach((worker) => {
@@ -38,49 +47,13 @@ export const calculateWorkerMetrics = (devices: Device[]): WorkerMetrics => {
       if (worker.is_in_use) workersInUse++;
       if (worker.can_be_used && !worker.is_in_use) workersAvailable++;
       if (worker.can_be_used) workersEnabled++;
-      if (worker.time_windowed_stats) {
-        hasWorkerStats = true;
-        workersWithStats++;
-        workersRequestsPerSecond30s +=
-          worker.time_windowed_stats.requests_rate_over_30_seconds;
-        workersAvgRequestDuration30s +=
-          worker.time_windowed_stats.request_ms_avg_over_30_seconds;
-        workersRequestsPerSecond1m +=
-          worker.time_windowed_stats.requests_rate_over_1_min;
-        workersAvgRequestDuration1m +=
-          worker.time_windowed_stats.request_ms_avg_over_1_min;
-        workersRequestsPerSecond5m +=
-          worker.time_windowed_stats.requests_rate_over_5_min;
-        workersAvgRequestDuration5m +=
-          worker.time_windowed_stats.request_ms_avg_over_5_min;
-        workersRequestsPerSecond15m +=
-          worker.time_windowed_stats.requests_rate_over_15_min;
-        workersAvgRequestDuration15m +=
-          worker.time_windowed_stats.request_ms_avg_over_15_min;
-      }
     });
   });
-
-  if (workersWithStats > 0) {
-    workersAvgRequestDuration30s /= workersWithStats;
-    workersAvgRequestDuration1m /= workersWithStats;
-    workersAvgRequestDuration5m /= workersWithStats;
-    workersAvgRequestDuration15m /= workersWithStats;
-  }
 
   return {
     workersInUse,
     workersAvailable,
     workersEnabled,
     workersTotal,
-    workersRequestsPerSecond30s,
-    workersAvgRequestDuration30s,
-    workersRequestsPerSecond1m,
-    workersAvgRequestDuration1m,
-    workersRequestsPerSecond5m,
-    workersAvgRequestDuration5m,
-    workersRequestsPerSecond15m,
-    workersAvgRequestDuration15m,
-    hasWorkerStats,
   };
 };
