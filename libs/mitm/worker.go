@@ -29,7 +29,13 @@ type WorkerModeInfo struct {
 // WorkerPlatform is a type alias for the platform reported in a worker's welcome message.
 type WorkerPlatform = protos.WelcomeMessage_Platform
 
-type requestTracker = tracking.RequestTracker[uint32, struct{}]
+// RequestData holds the per-request data carried alongside a tracked MITM request.
+type RequestData struct {
+	// Methods holds the RPC method IDs for an RPC request. It is nil for a login request.
+	Methods []int32
+}
+
+type requestTracker = tracking.RequestTracker[uint32, RequestData]
 
 // Worker represents a connected MITM worker that proxies between controllers and devices.
 type Worker struct {
@@ -183,11 +189,23 @@ func (worker *Worker) Close(code ws.StatusCode, text string) error {
 // In inspect mode, the initial request is also tracked so that when the worker
 // processes the response in Run(), it is not treated as a drop.
 func (worker *Worker) ProxyController(ctx context.Context, controller Controller, disableStats bool, mitmLoginRequest *protos.MitmRequest) {
+	logger := logging.LoggerFromContext(ctx)
+
 	var requestTracker *requestTracker
 
 	if !disableStats {
-		requestTracker = tracking.NewRequestTracker[uint32, struct{}]()
-		defer requestTracker.Done(nil)
+		requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
+		if logger != nil {
+			defer requestTracker.Done(func(request tracking.Request[RequestData]) {
+				logger.LogAttrs(ctx, slog.LevelWarn, "mitm worker ended with request still waiting a response",
+					slog.String("worker_id", worker.id),
+					slog.String("method_name", request.MethodName),
+					slog.Any("methods", request.Data.Methods),
+					slog.String("start_time", request.StartTime.Format(time.RFC3339Nano)),
+					slog.Duration("age", time.Since(request.StartTime)),
+				)
+			})
+		}
 		worker.requestTracker = requestTracker
 	}
 
@@ -200,8 +218,6 @@ func (worker *Worker) ProxyController(ctx context.Context, controller Controller
 	defer worker.statsCollector.DecrWorkersInUse(worker.origin)
 	worker.statsCollector.IncrWorkersInUse(worker.origin)
 
-	logger := logging.LoggerFromContext(ctx)
-
 	payload, err := proto.Marshal(mitmLoginRequest)
 	if err != nil {
 		_ = controller.Close(errorutil.CloseCodeProtocolError, "failed to marshal initial request")
@@ -213,9 +229,10 @@ func (worker *Worker) ProxyController(ctx context.Context, controller Controller
 
 	if requestTracker != nil {
 		requestMethodName := worker.getRequestMethodName(mitmLoginRequest)
-		requestTracker.Add(mitmLoginRequest.Id, tracking.Request[struct{}]{
+		requestTracker.Add(mitmLoginRequest.Id, tracking.Request[RequestData]{
 			StartTime:  time.Now(),
 			MethodName: requestMethodName,
+			Data:       RequestData{Methods: getRequestMethods(mitmLoginRequest)},
 		})
 	}
 
@@ -244,9 +261,10 @@ func (worker *Worker) ProxyController(ctx context.Context, controller Controller
 			err := proto.Unmarshal(reader.Bytes(), &mitmRequestProto)
 			if err == nil {
 				requestMethodName := worker.getRequestMethodName(&mitmRequestProto)
-				requestTracker.Add(mitmRequestProto.Id, tracking.Request[struct{}]{
+				requestTracker.Add(mitmRequestProto.Id, tracking.Request[RequestData]{
 					StartTime:  time.Now(),
 					MethodName: requestMethodName,
+					Data:       RequestData{Methods: getRequestMethods(&mitmRequestProto)},
 				})
 			}
 		}
@@ -326,6 +344,20 @@ func (worker *Worker) SetPreviousWSConnStats(stats ws.ConnStats) {
 
 func (worker *Worker) getRequestMethodName(mitmRequestProto *protos.MitmRequest) string {
 	return protos.MITMRequestMethodName(mitmRequestProto.Method)
+}
+
+// getRequestMethods returns the RPC method IDs for an RPC request. It returns nil
+// for a login request (or any request without an RPC payload).
+func getRequestMethods(mitmRequestProto *protos.MitmRequest) []int32 {
+	rpcRequest := mitmRequestProto.GetRpcRequest()
+	if rpcRequest == nil {
+		return nil
+	}
+	methods := make([]int32, 0, len(rpcRequest.Request))
+	for idx, singleRequest := range rpcRequest.Request {
+		methods[idx] = singleRequest.Method
+	}
+	return methods
 }
 
 func (worker *Worker) processResponseAndUpdateStats(payload []byte) {

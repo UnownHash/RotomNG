@@ -135,10 +135,10 @@ func TestWorker_ProcessResponseAndUpdateStats(t *testing.T) {
 	wm := &mockWelcomeMessage{workerID: "w1"}
 	worker := NewWorker(wsConn, wm, sc)
 
-	worker.requestTracker = tracking.NewRequestTracker[uint32, struct{}]()
+	worker.requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
 
 	// Store a request first
-	worker.requestTracker.Add(1, tracking.Request[struct{}]{StartTime: time.Now(), MethodName: "GET_MAP_OBJECTS"})
+	worker.requestTracker.Add(1, tracking.Request[RequestData]{StartTime: time.Now(), MethodName: "GET_MAP_OBJECTS"})
 
 	// Create a response
 	resp := &protos.MitmResponse{
@@ -169,8 +169,8 @@ func TestWorker_ProcessResponseAndUpdateStats_RPC(t *testing.T) {
 	wm := &mockWelcomeMessage{workerID: "w1"}
 	worker := NewWorker(wsConn, wm, sc)
 
-	worker.requestTracker = tracking.NewRequestTracker[uint32, struct{}]()
-	worker.requestTracker.Add(1, tracking.Request[struct{}]{StartTime: time.Now(), MethodName: "RPC_REQUEST"})
+	worker.requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
+	worker.requestTracker.Add(1, tracking.Request[RequestData]{StartTime: time.Now(), MethodName: "RPC_REQUEST"})
 
 	resp := &protos.MitmResponse{Id: 1, Status: protos.MitmResponse_SUCCESS}
 	respBytes, _ := proto.Marshal(resp)
@@ -189,7 +189,7 @@ func TestWorker_ProcessResponseAndUpdateStats_InvalidProto(t *testing.T) {
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
 	worker := NewWorker(wsConn, wm, sc)
-	worker.requestTracker = tracking.NewRequestTracker[uint32, struct{}]()
+	worker.requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
 
 	// Should not panic on invalid protobuf
 	worker.processResponseAndUpdateStats([]byte("not protobuf"))
@@ -206,7 +206,7 @@ func TestWorker_ProcessResponseAndUpdateStats_UnknownRequest(t *testing.T) {
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
 	worker := NewWorker(wsConn, wm, sc)
-	worker.requestTracker = tracking.NewRequestTracker[uint32, struct{}]()
+	worker.requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
 
 	// Don't store any request - response should be for unknown ID
 	resp := &protos.MitmResponse{Id: 999, Status: protos.MitmResponse_SUCCESS}
@@ -400,8 +400,8 @@ func TestWorker_Run_InspectMode(t *testing.T) {
 	})
 
 	// Store a request so processResponseAndUpdateStats has something to find
-	worker.requestTracker = tracking.NewRequestTracker[uint32, struct{}]()
-	worker.requestTracker.Add(1, tracking.Request[struct{}]{StartTime: time.Now(), MethodName: "GET_MAP_OBJECTS"})
+	worker.requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
+	worker.requestTracker.Add(1, tracking.Request[RequestData]{StartTime: time.Now(), MethodName: "GET_MAP_OBJECTS"})
 
 	// Create a valid MitmResponse
 	resp := &protos.MitmResponse{Id: 1, Status: protos.MitmResponse_SUCCESS}

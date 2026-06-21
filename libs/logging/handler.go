@@ -233,7 +233,7 @@ func (h *SlogHandler) handleJSON(r slog.Record) error {
 
 	buf.WriteString(`{"timestamp":`)
 	if !r.Time.IsZero() {
-		ts, _ := json.Marshal(r.Time.UTC().Format(time.RFC3339)) //nolint:errchkjson // time.RFC3339 is safe
+		ts, _ := json.Marshal(r.Time.UTC().Format(time.RFC3339Nano)) //nolint:errchkjson // time.RFC3339 is safe
 		buf.Write(ts)
 	} else {
 		buf.WriteString(`""`)

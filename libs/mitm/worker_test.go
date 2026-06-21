@@ -241,11 +241,11 @@ func TestWorker_RequestManagement(t *testing.T) {
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
 	worker := NewWorker(wsConn, wm, sc)
-	worker.requestTracker = tracking.NewRequestTracker[uint32, struct{}]()
+	worker.requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
 
 	// Store a request
-	worker.requestTracker.Add(1, tracking.Request[struct{}]{StartTime: time.Now(), MethodName: "GET_MAP_OBJECTS"})
-	worker.requestTracker.Add(2, tracking.Request[struct{}]{StartTime: time.Now(), MethodName: "ENCOUNTER"})
+	worker.requestTracker.Add(1, tracking.Request[RequestData]{StartTime: time.Now(), MethodName: "GET_MAP_OBJECTS"})
+	worker.requestTracker.Add(2, tracking.Request[RequestData]{StartTime: time.Now(), MethodName: "ENCOUNTER"})
 
 	// Verify get and delete
 	req, ok := worker.requestTracker.Get(1)
@@ -278,13 +278,13 @@ func TestWorker_DoneRequests(t *testing.T) {
 	sc := newMockWorkerStatsCollector()
 	wm := &mockWelcomeMessage{workerID: "w1"}
 	worker := NewWorker(wsConn, wm, sc)
-	worker.requestTracker = tracking.NewRequestTracker[uint32, struct{}]()
+	worker.requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
 
-	worker.requestTracker.Add(1, tracking.Request[struct{}]{StartTime: time.Now(), MethodName: "M1"})
-	worker.requestTracker.Add(2, tracking.Request[struct{}]{StartTime: time.Now(), MethodName: "M2"})
-	worker.requestTracker.Add(3, tracking.Request[struct{}]{StartTime: time.Now(), MethodName: "M3"})
+	worker.requestTracker.Add(1, tracking.Request[RequestData]{StartTime: time.Now(), MethodName: "M1"})
+	worker.requestTracker.Add(2, tracking.Request[RequestData]{StartTime: time.Now(), MethodName: "M2"})
+	worker.requestTracker.Add(3, tracking.Request[RequestData]{StartTime: time.Now(), MethodName: "M3"})
 
-	worker.requestTracker.Done(func(_ tracking.Request[struct{}]) {})
+	worker.requestTracker.Done(func(_ tracking.Request[RequestData]) {})
 
 	for _, id := range []uint32{1, 2, 3} {
 		if _, ok := worker.requestTracker.Get(id); ok {
