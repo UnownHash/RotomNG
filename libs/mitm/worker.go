@@ -197,7 +197,7 @@ func (worker *Worker) ProxyController(ctx context.Context, controller Controller
 		requestTracker = tracking.NewRequestTracker[uint32, RequestData]()
 		if logger != nil {
 			defer requestTracker.Done(func(request tracking.Request[RequestData]) {
-				logger.LogAttrs(ctx, slog.LevelWarn, "mitm worker ended with request still waiting a response",
+				logger.LogAttrs(ctx, slog.LevelWarn, "mitm worker request ended while waiting a response",
 					slog.String("worker_id", worker.id),
 					slog.String("method_name", request.MethodName),
 					slog.Any("methods", request.Data.Methods),

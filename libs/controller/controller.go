@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -153,13 +154,18 @@ func (controller *Controller) Close(code ws.StatusCode, text string) error {
 	return controller.wsConn.Close(code, text)
 }
 
-// Reader returns a reader for the next message from the controller.
+// Reader returns a reader for the next message from the controller. If no
+// message is read within ControllerReadTimeout, the read fails so the caller
+// can disconnect the controller. The deadline is applied via the context so
+// that ws.Conn.Reader honors it (it resets the underlying read deadline from
+// the context on every call).
 func (controller *Controller) Reader(ctx context.Context) (ws.Reader, error) {
-	_ = controller.wsConn.SetReadDeadline(time.Now().Add(ControllerReadTimeout))
+	readCtx, cancel := context.WithTimeout(ctx, ControllerReadTimeout)
+	defer cancel()
 
-	reader, err := controller.wsConn.Reader(ctx)
+	reader, err := controller.wsConn.Reader(readCtx)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
 			return nil, fmt.Errorf("read timeout after %s: %w", ControllerReadTimeout, err)
 		}
 		return nil, err
