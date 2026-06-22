@@ -353,7 +353,7 @@ func getRequestMethods(mitmRequestProto *protos.MitmRequest) []int32 {
 	if rpcRequest == nil {
 		return nil
 	}
-	methods := make([]int32, 0, len(rpcRequest.Request))
+	methods := make([]int32, len(rpcRequest.Request))
 	for idx, singleRequest := range rpcRequest.Request {
 		methods[idx] = singleRequest.Method
 	}
