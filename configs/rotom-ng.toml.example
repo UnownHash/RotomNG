@@ -9,12 +9,17 @@
 [device_listener]
 address = ":7070"  # Default: ":7070"
 # secret = "your-device-secret-here"  # Optional authentication secret for device connections
+# ping_interval = "30s"  # Default: "30s". Interval between websocket pings used to enforce the read timeout
+# pong_wait = "30s"      # Default: "30s". Extra grace beyond ping_interval to receive a pong before the read times out (effective read timeout = ping_interval + pong_wait)
 
 # Controller listener configuration (optional)
 # Handles connections from Dragonite or other controllers
 [controller_listener]
 address = ":7071"  # Default: ":7071"
 # secret = "your-controller-secret-here"  # Optional authentication secret for controller connections
+# ping_interval = "30s"  # Default: "30s". Interval between websocket pings used to enforce the read timeout
+# pong_wait = "30s"      # Default: "30s". Extra grace beyond ping_interval to receive a pong before the read times out (effective read timeout = ping_interval + pong_wait)
+# registration_timeout = "1m"  # Default: "1m". Max time allowed for the controller registration handshake before falling back to the normal ping read timeout
 
 # HTTP listener configuration (optional)
 # Provides REST API endpoints as well as the web UI

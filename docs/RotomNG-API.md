@@ -66,6 +66,15 @@ Returns the current system configuration including version, tuning parameters, a
       "enable": true,
       "max_selections": 100,
       "duration": "1m"
+    },
+    "device_listener": {
+      "ping_interval": "30s",
+      "pong_wait": "30s"
+    },
+    "controller_listener": {
+      "ping_interval": "30s",
+      "pong_wait": "30s",
+      "registration_timeout": "1m0s"
     }
   }
 }
@@ -75,6 +84,8 @@ Returns the current system configuration including version, tuning parameters, a
 - `sha`: Git commit SHA of the running build
 - `instance`: Only present if configured
 - `rate_limit`: Always present
+- `device_listener` / `controller_listener`: websocket keep-alive settings. `ping_interval` and `pong_wait` are durations; the read timeout fires if no pong is received within `ping_interval + pong_wait`.
+- `registration_timeout`: max time allowed for a controller to complete registration before the normal ping-based read timeout applies.
 
 #### Reload Configuration
 ```http

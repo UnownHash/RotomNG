@@ -56,6 +56,17 @@ type Conn struct {
 	closed     atomic.Bool
 	cancelFn   context.CancelFunc
 
+	// readDeadlineExt is the duration (in nanoseconds) by which the read
+	// deadline is extended each time a pong is received. It is updated by
+	// StartPingLoop so settings reloads take effect without re-installing the
+	// pong handler (which would race with the reader).
+	readDeadlineExt atomic.Int64
+
+	// bgMu serializes starting background goroutines (via wg.Go) against the
+	// wg.Wait performed in Close, so the WaitGroup is never given a concurrent
+	// Add and Wait (which the race detector flags and the docs forbid).
+	bgMu sync.Mutex
+
 	statsMu sync.Mutex
 	stats   ConnStats
 
@@ -145,12 +156,11 @@ func (w *Conn) WriteFromReader(ctx context.Context, reader Reader) error {
 // Reader returns the message type, an io.ReadCloser that can be used to read the message.
 // The returned reader should be closed after use to return the buffer to the pool. You
 // can only have 1 concurrent reader at any given time, including combined with ReadJSON().
-func (w *Conn) Reader(ctx context.Context) (Reader, error) {
+func (w *Conn) Reader(_ context.Context) (Reader, error) {
 	if w.closed.Load() {
 		return nil, errWebsocketClosed
 	}
 	buf := w.bufferPool.Get()
-	w.setDeadline(ctx, w.conn.SetReadDeadline)
 	msgType, reader, err := w.conn.NextReader()
 	if err != nil {
 		w.bufferPool.Put(buf)
@@ -198,6 +208,13 @@ func (w *Conn) Flush(ctx context.Context) error {
 // Close closes the WebSocket connection with the given status code and reason.
 func (w *Conn) Close(code StatusCode, reason string) error {
 	err := w.close(code, reason)
+	// Serialize against StartPingLoop: w.close has set closed=true, so any
+	// in-flight StartPingLoop either already finished its wg.Go (ordered before
+	// this Wait) or, once it acquires bgMu, observes closed and skips it. Holding
+	// bgMu across Wait prevents a concurrent wg.Add/Wait on the WaitGroup. The
+	// background goroutines do not take bgMu, so this cannot deadlock.
+	w.bgMu.Lock()
+	defer w.bgMu.Unlock()
 	w.wg.Wait()
 	return err
 }
@@ -208,13 +225,71 @@ func (w *Conn) SetReadDeadline(t time.Time) error {
 	return w.conn.SetReadDeadline(t)
 }
 
-// Ping sends a ping frame and waits for a pong frame.
+// Ping sends a ping control frame. It is safe to call concurrently with writes.
 func (w *Conn) Ping(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	w.setDeadline(ctx, w.conn.SetWriteDeadline)
-	return w.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second))
+	deadline := time.Now().Add(time.Second)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	return w.conn.WriteControl(websocket.PingMessage, nil, deadline)
+}
+
+// EnableReadTimeout sets the initial read deadline and installs a pong handler
+// that extends the read deadline by interval+pongWait each time a pong is
+// received; if no pong arrives the deadline expires naturally and the next
+// Reader call will return an error. It mutates read-side connection state and
+// therefore must be called on the goroutine that reads from the connection,
+// before any reads begin, and never concurrently with a read. Subsequent
+// changes to the extension (e.g. on a settings reload) are picked up
+// automatically by StartPingLoop without re-installing the handler.
+func (w *Conn) EnableReadTimeout(interval, pongWait time.Duration) {
+	w.readDeadlineExt.Store(int64(interval + pongWait))
+	_ = w.conn.SetReadDeadline(time.Now().Add(interval + pongWait))
+	w.conn.SetPongHandler(func(string) error {
+		ext := time.Duration(w.readDeadlineExt.Load())
+		return w.conn.SetReadDeadline(time.Now().Add(ext))
+	})
+}
+
+// StartPingLoop begins a background goroutine that sends a WebSocket ping every
+// interval. The read deadline is extended by interval+pongWait on each pong
+// received via the handler installed by EnableReadTimeout, which must be called
+// first. On ping write failure the connection is closed. The loop stops when ctx
+// is done or the connection is closed. StartPingLoop only sends pings (a
+// concurrency-safe control write) and updates the pong extension, so it is safe
+// to call concurrently with a reader and may be called repeatedly to apply new
+// interval/pongWait values.
+func (w *Conn) StartPingLoop(ctx context.Context, interval, pongWait time.Duration) {
+	w.readDeadlineExt.Store(int64(interval + pongWait))
+
+	// Guard against racing the wg.Wait in Close: if the connection is already
+	// closing, don't start the goroutine (it would have nothing live to ping).
+	w.bgMu.Lock()
+	defer w.bgMu.Unlock()
+	if w.closed.Load() {
+		return
+	}
+
+	w.wg.Go(func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-w.ctx.Done():
+				return
+			case <-ticker.C:
+				if err := w.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(pongWait)); err != nil {
+					w.close(StatusAbnormalClosure, "ping failed")
+					return
+				}
+			}
+		}
+	})
 }
 
 // Subprotocol returns the negotiated subprotocol.
@@ -255,15 +330,6 @@ func (w *Conn) GetStats() ConnStats {
 	return w.stats
 }
 
-func (w *Conn) setDeadline(ctx context.Context, setFn func(time.Time) error) {
-	var zeroTime time.Time
-	if deadline, ok := ctx.Deadline(); ok {
-		setFn(deadline)
-	} else {
-		setFn(zeroTime)
-	}
-}
-
 func (w *Conn) close(code StatusCode, reason string) error {
 	err := errWebsocketAlreadyClosed
 	if w.closed.CompareAndSwap(false, true) {
@@ -294,7 +360,6 @@ func (w *Conn) backgroundWriter() {
 			var err error
 			// reader may be nil for Flush()
 			if reader := msg.reader; reader != nil {
-				w.setDeadline(msg.ctx, w.conn.SetWriteDeadline)
 				err = w.conn.WriteMessage(reader.MessageType(), reader.Bytes())
 				if err == nil {
 					func() {

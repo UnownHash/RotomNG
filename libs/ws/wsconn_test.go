@@ -1511,13 +1511,167 @@ func TestWSConn_WriteJSONAsync_ClosedConnection(t *testing.T) {
 	}
 }
 
+func TestWSConn_StartPingLoop_SendsPings(t *testing.T) {
+	pingReceived := make(chan struct{}, 8)
+
+	client := setupPair(t, func(_ *testing.T, server *Conn) {
+		server.StartPingLoop(context.Background(), 20*time.Millisecond, 100*time.Millisecond)
+		// Read so the server processes pong control frames and stays alive.
+		for {
+			reader, err := server.Reader(context.Background())
+			if err != nil {
+				return
+			}
+			reader.Done()
+		}
+	})
+	defer client.Close(StatusNormalClosure, "")
+
+	client.conn.SetPingHandler(func(string) error {
+		select {
+		case pingReceived <- struct{}{}:
+		default:
+		}
+		return nil
+	})
+
+	// The client must be reading for the underlying conn to process ping control frames.
+	go func() {
+		for {
+			reader, err := client.Reader(context.Background())
+			if err != nil {
+				return
+			}
+			reader.Done()
+		}
+	}()
+
+	select {
+	case <-pingReceived:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no ping received from StartPingLoop within 2s")
+	}
+}
+
+func TestWSConn_StartPingLoop_PongExtendsDeadline(t *testing.T) {
+	// interval+pongWait = 80ms read deadline. The client auto-responds to pings with
+	// pongs (default handler), which must extend the server's read deadline well past
+	// 80ms so the data message sent at 200ms is still received.
+	got := make(chan []byte, 1)
+	client := setupPair(t, func(_ *testing.T, server *Conn) {
+		server.EnableReadTimeout(30*time.Millisecond, 50*time.Millisecond)
+		server.StartPingLoop(context.Background(), 30*time.Millisecond, 50*time.Millisecond)
+		reader, err := server.Reader(context.Background())
+		if err != nil {
+			return
+		}
+		data := append([]byte(nil), reader.Bytes()...)
+		reader.Done()
+		got <- data
+	})
+	defer client.Close(StatusNormalClosure, "")
+
+	// Client read loop processes incoming pings and auto-sends pongs.
+	go func() {
+		for {
+			reader, err := client.Reader(context.Background())
+			if err != nil {
+				return
+			}
+			reader.Done()
+		}
+	}()
+
+	// Send data well after the 80ms read deadline; only pong-driven extension keeps
+	// the server's reader alive long enough to receive it.
+	time.Sleep(200 * time.Millisecond)
+	if err := client.Write(context.Background(), MessageText, []byte("alive")); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	select {
+	case data := <-got:
+		if string(data) != "alive" {
+			t.Errorf("server received %q, want %q", data, "alive")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("server read timed out — pong did not extend the read deadline")
+	}
+}
+
+func TestWSConn_StartPingLoop_StopsOnContextCancel(t *testing.T) {
+	pings := make(chan struct{}, 16)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	started := make(chan struct{})
+	client := setupPair(t, func(_ *testing.T, server *Conn) {
+		server.StartPingLoop(ctx, 20*time.Millisecond, 100*time.Millisecond)
+		close(started)
+		for {
+			reader, err := server.Reader(context.Background())
+			if err != nil {
+				return
+			}
+			reader.Done()
+		}
+	})
+	defer client.Close(StatusNormalClosure, "")
+
+	client.conn.SetPingHandler(func(string) error {
+		select {
+		case pings <- struct{}{}:
+		default:
+		}
+		return nil
+	})
+	go func() {
+		for {
+			reader, err := client.Reader(context.Background())
+			if err != nil {
+				return
+			}
+			reader.Done()
+		}
+	}()
+
+	<-started
+
+	select {
+	case <-pings:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no ping received before cancel")
+	}
+
+	cancel()
+
+	// Allow the loop to observe cancellation and drain any in-flight ping.
+	time.Sleep(100 * time.Millisecond)
+	for draining := true; draining; {
+		select {
+		case <-pings:
+		default:
+			draining = false
+		}
+	}
+
+	select {
+	case <-pings:
+		t.Fatal("ping received after context cancel")
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
 func TestWSConn_Reader_ExitsOnExpiredReadDeadline(t *testing.T) {
 	// Verify that setting an expired read deadline on the underlying net.Conn
 	// causes a blocked Reader() call to return immediately. This is the mechanism
 	// used by HTTPServer.Shutdown to unblock handler goroutines stuck in reads.
-	client := setupPair(t, func(_ *testing.T, _ *Conn) {
-		// Server does nothing — client will block in Reader waiting for data
-		<-make(chan struct{})
+	client := setupPair(t, func(_ *testing.T, server *Conn) {
+		// Server sends no data, so the client blocks in Reader waiting for it.
+		// Block on a read (rather than a channel nothing closes) so this
+		// goroutine — and the server Conn it owns — exit cleanly when the
+		// client is torn down during cleanup, instead of leaking per -count run.
+		_, _ = server.Reader(context.Background())
 	})
 
 	done := make(chan error, 1)

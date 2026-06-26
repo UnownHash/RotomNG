@@ -3,23 +3,12 @@ package controller
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log/slog"
-	"os"
 	"sync"
-	"time"
 
 	"github.com/UnownHash/RotomNG/libs/logging"
 	"github.com/UnownHash/RotomNG/libs/protos"
 	"github.com/UnownHash/RotomNG/libs/ws"
-)
-
-const (
-	// ControllerReadTimeout is the read deadline for controller connections.
-	// Controllers are responsible for keeping the connection alive by sending
-	// ServerTime requests, etc.
-	ControllerReadTimeout = 5 * time.Minute
 )
 
 // Controller represents a connected controller session managing a MITM worker.
@@ -154,23 +143,11 @@ func (controller *Controller) Close(code ws.StatusCode, text string) error {
 	return controller.wsConn.Close(code, text)
 }
 
-// Reader returns a reader for the next message from the controller. If no
-// message is read within ControllerReadTimeout, the read fails so the caller
-// can disconnect the controller. The deadline is applied via the context so
-// that ws.Conn.Reader honors it (it resets the underlying read deadline from
-// the context on every call).
+// Reader returns a reader for the next message from the controller.
+// Liveness is enforced by the ping loop started in the handler; if the peer
+// stops responding the read deadline will expire and this will return an error.
 func (controller *Controller) Reader(ctx context.Context) (ws.Reader, error) {
-	readCtx, cancel := context.WithTimeout(ctx, ControllerReadTimeout)
-	defer cancel()
-
-	reader, err := controller.wsConn.Reader(readCtx)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
-			return nil, fmt.Errorf("read timeout after %s: %w", ControllerReadTimeout, err)
-		}
-		return nil, err
-	}
-	return reader, nil
+	return controller.wsConn.Reader(ctx)
 }
 
 // WriteAsyncFromReader writes the contents of a WSReader asynchronously to the controller.

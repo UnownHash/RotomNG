@@ -96,6 +96,19 @@ func (ah *HTTPAPIHandler) GetConfig(c *gin.Context) {
 			"duration":       cfg.RateLimit.Duration,
 		}
 	}
+	if cfg.DeviceListener != nil {
+		jsonConfig["device_listener"] = gin.H{
+			"ping_interval": cfg.DeviceListener.PingInterval.String(),
+			"pong_wait":     cfg.DeviceListener.PongWait.String(),
+		}
+	}
+	if cfg.ControllerListener != nil {
+		jsonConfig["controller_listener"] = gin.H{
+			"ping_interval":        cfg.ControllerListener.PingInterval.String(),
+			"pong_wait":            cfg.ControllerListener.PongWait.String(),
+			"registration_timeout": cfg.ControllerListener.RegistrationTimeout.String(),
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "config": jsonConfig})
 }
 

@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -40,10 +42,22 @@ type ControllerStatsCollector interface {
 
 // ControllerHandlerSettings holds settings for the controller handler.
 type ControllerHandlerSettings struct {
+	PingInterval        time.Duration
+	PongWait            time.Duration
+	RegistrationTimeout time.Duration
 }
 
 // Validate validates the controller handler settings.
 func (s ControllerHandlerSettings) Validate() error {
+	if s.PingInterval <= 0 {
+		return errors.New("controller ping_interval must be positive")
+	}
+	if s.PongWait <= 0 {
+		return errors.New("controller pong_wait must be positive")
+	}
+	if s.RegistrationTimeout <= 0 {
+		return errors.New("controller registration_timeout must be positive")
+	}
 	return nil
 }
 
@@ -75,6 +89,38 @@ type ControllerHandler[C Controller] struct {
 	statsCollector    ControllerStatsCollector
 	bufferPool        *bufferpool.BufferPool
 	getSettings       func() ControllerHandlerSettings
+	notify            func(func(ControllerHandlerSettings)) func()
+}
+
+// startManagedPingLoop starts a ping loop for wsConn using the current settings,
+// and restarts it whenever settings change. Runs until connCtx is done.
+func (handler *ControllerHandler[C]) startManagedPingLoop(connCtx context.Context, wsConn *ws.Conn) {
+	settingsCh := make(chan ControllerHandlerSettings, 1)
+	dereg := handler.notify(func(s ControllerHandlerSettings) {
+		select {
+		case <-settingsCh:
+		default:
+		}
+		settingsCh <- s
+	})
+	defer dereg()
+
+	s := handler.getSettings()
+	pingCtx, pingCancel := context.WithCancel(connCtx)
+	wsConn.StartPingLoop(pingCtx, s.PingInterval, s.PongWait)
+
+	for {
+		select {
+		case <-connCtx.Done():
+			pingCancel()
+			return
+		case s = <-settingsCh:
+			pingCancel()
+			//nolint:fatcontext // each pingCtx derives directly from connCtx; chain depth is constant
+			pingCtx, pingCancel = context.WithCancel(connCtx)
+			wsConn.StartPingLoop(pingCtx, s.PingInterval, s.PongWait)
+		}
+	}
 }
 
 func (handler *ControllerHandler[C]) handleController(c *gin.Context, isV2 bool) {
@@ -106,12 +152,34 @@ func (handler *ControllerHandler[C]) handleController(c *gin.Context, isV2 bool)
 		remoteAddrLogger.LogAttrs(c.Request.Context(), slog.LevelError, "failed to upgrade to websocket", slog.String("error", err.Error()))
 		return
 	}
+
+	// Install the read deadline and pong handler synchronously, before the
+	// registration handshake reads from the connection. This bounds the
+	// handshake and must happen on this (the reading) goroutine so it cannot
+	// race with the reads or the Close performed during registration. The ping
+	// loop itself is only started once registration succeeds (see below).
+	s := handler.getSettings()
+	// EnableReadTimeout installs the pong handler and stores the normal
+	// (PingInterval+PongWait) extension used once the ping loop runs. During the
+	// registration handshake no pings run yet, so give it its own, longer,
+	// separately-configurable budget. Safe to set here: this is the reading
+	// goroutine and the ping loop has not started.
+	wsConn.EnableReadTimeout(s.PingInterval, s.PongWait)
+	_ = wsConn.SetReadDeadline(time.Now().Add(s.RegistrationTimeout))
+
+	// pingLoopCtx is cancelled inside closeWsConn before wsConn.Close() so that
+	// startManagedPingLoop cannot call wg.Go after wg.Wait has returned.
+	pingLoopCtx, pingLoopCancel := context.WithCancel(ctx)
+	var pingLoopWg sync.WaitGroup
+
 	go func(ctx context.Context) {
 		<-ctx.Done()
 		_ = wsConn.SetReadDeadline(time.Now())
 	}(ctx)
 
 	closeWsConn := func(code int, reason string) {
+		pingLoopCancel()
+		pingLoopWg.Wait()
 		if ctx.Err() != nil {
 			_ = wsConn.Close(ws.StatusGoingAway, "rotom is shutting down")
 			return
@@ -162,6 +230,17 @@ func (handler *ControllerHandler[C]) handleController(c *gin.Context, isV2 bool)
 	handler.statsCollector.IncrControllerConnections(userAgent)
 	defer handler.statsCollector.DecrControllerConnections(userAgent)
 
+	// Registration complete: drop back to the normal ping-based read deadline
+	// before the ping loop takes over extending it on each pong.
+	_ = wsConn.SetReadDeadline(time.Now().Add(s.PingInterval + s.PongWait))
+
+	// Registration is complete; start the managed ping loop now that nothing
+	// else mutates the connection's read state. It is safe to run concurrently
+	// with the reads performed by controller.Run.
+	pingLoopWg.Go(func() {
+		handler.startManagedPingLoop(pingLoopCtx, wsConn)
+	})
+
 	ctx = logging.ContextWithLogger(ctx, logger)
 	controller.Run(ctx)
 }
@@ -188,5 +267,6 @@ func NewControllerHandler[C Controller](ctx context.Context, cfg ControllerHandl
 		statsCollector:    cfg.StatsCollector,
 		bufferPool:        cfg.BufferPool,
 		getSettings:       cfg.GetSettings,
+		notify:            cfg.Notify,
 	}
 }

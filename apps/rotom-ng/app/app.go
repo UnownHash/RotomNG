@@ -70,8 +70,19 @@ func getConnectionManagerSettings(cfg *config.Config) connections.ConnectionMana
 	}
 }
 
-func getControllerHandlerSettings(_ *config.Config) handlers.ControllerHandlerSettings {
-	return handlers.ControllerHandlerSettings{}
+func getControllerHandlerSettings(cfg *config.Config) handlers.ControllerHandlerSettings {
+	return handlers.ControllerHandlerSettings{
+		PingInterval:        cfg.ControllerListener.PingInterval,
+		PongWait:            cfg.ControllerListener.PongWait,
+		RegistrationTimeout: cfg.ControllerListener.RegistrationTimeout,
+	}
+}
+
+func getDeviceHandlerSettings(cfg *config.Config) handlers.DeviceHandlerSettings {
+	return handlers.DeviceHandlerSettings{
+		PingInterval: cfg.DeviceListener.PingInterval,
+		PongWait:     cfg.DeviceListener.PongWait,
+	}
 }
 
 func getJobsManagerSettings(cfg *config.Config) jobs.ManagerSettings {
@@ -121,6 +132,7 @@ type App struct {
 
 	selectorConfig          selector.Config
 	connectionManagerConfig connections.ConnectionManagerConfig[*Controller, *MITMWorker]
+	deviceHandlerConfig     handlers.DeviceHandlerConfig
 	controllerHandlerConfig handlers.ControllerHandlerConfig[*Controller]
 	jobsManagerConfig       jobs.ManagerConfig
 	httpAPIHandlerConfig    app_handlers.HTTPAPIHandlerConfig
@@ -294,14 +306,17 @@ func (a *App) Init() error {
 		return fmt.Errorf("invalid device monitor config: %w", err)
 	}
 
-	deviceHandlerConfig := handlers.DeviceHandlerConfig{
+	a.deviceHandlerConfig = handlers.DeviceHandlerConfig{
 		Logger:              a.logger,
 		BufferPool:          a.bufferPool,
 		ConnectionManager:   a.connectionManager,
 		StatsCollector:      a.statsCollector,
 		DeviceMonitorConfig: deviceMonitorConfig,
 	}
-	a.deviceHandler = handlers.NewDeviceHandler(a.ctx, deviceHandlerConfig)
+	if err := a.deviceHandlerConfig.Init(getDeviceHandlerSettings(a.cfg)); err != nil {
+		return fmt.Errorf("invalid device handler config: %w", err)
+	}
+	a.deviceHandler = handlers.NewDeviceHandler(a.ctx, a.deviceHandlerConfig)
 
 	workerHandlerConfig := app_handlers.WorkerHandlerConfig{
 		Logger:                   a.logger,
@@ -432,6 +447,11 @@ func (a *App) reload() error {
 		return err
 	}
 
+	deviceHandlerSettings := getDeviceHandlerSettings(cfg)
+	if err := deviceHandlerSettings.Validate(); err != nil {
+		return err
+	}
+
 	controllerHandlerSettings := getControllerHandlerSettings(cfg)
 	if err := controllerHandlerSettings.Validate(); err != nil {
 		return err
@@ -462,6 +482,9 @@ func (a *App) reload() error {
 	}
 	if err := a.jobsManagerConfig.PutSettings(jobManagerSettings); err != nil {
 		a.logger.LogAttrs(context.Background(), slog.LevelError, "failed to apply settings", slog.String("component", "jobs_manager"), slog.String("error", err.Error()))
+	}
+	if err := a.deviceHandlerConfig.PutSettings(deviceHandlerSettings); err != nil {
+		a.logger.LogAttrs(context.Background(), slog.LevelError, "failed to apply settings", slog.String("component", "device_handler"), slog.String("error", err.Error()))
 	}
 	if err := a.controllerHandlerConfig.PutSettings(controllerHandlerSettings); err != nil {
 		a.logger.LogAttrs(context.Background(), slog.LevelError, "failed to apply settings", slog.String("component", "controller_handler"), slog.String("error", err.Error()))

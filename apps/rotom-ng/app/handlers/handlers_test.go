@@ -80,6 +80,15 @@ func newTestHTTPAPIHandler(reloadFn func() error) *HTTPAPIHandler {
 				Duration:                 5 * time.Minute,
 			},
 			Prometheus: &config.PrometheusConfig{Enable: true},
+			DeviceListener: &config.DeviceListener{
+				PingInterval: 30 * time.Second,
+				PongWait:     10 * time.Second,
+			},
+			ControllerListener: &config.ControllerListener{
+				PingInterval:        30 * time.Second,
+				PongWait:            10 * time.Second,
+				RegistrationTimeout: 60 * time.Second,
+			},
 		},
 	})
 	return NewHTTPAPIHandler(*cfg)
@@ -134,6 +143,31 @@ func TestGetConfig(t *testing.T) {
 	}
 	if cfg["rate_limit"] == nil {
 		t.Error("expected rate_limit in response")
+	}
+
+	deviceListener, ok := cfg["device_listener"].(map[string]any)
+	if !ok {
+		t.Fatal("expected device_listener object in response")
+	}
+	if deviceListener["ping_interval"] != "30s" {
+		t.Errorf("expected device_listener ping_interval '30s', got '%v'", deviceListener["ping_interval"])
+	}
+	if deviceListener["pong_wait"] != "10s" {
+		t.Errorf("expected device_listener pong_wait '10s', got '%v'", deviceListener["pong_wait"])
+	}
+
+	controllerListener, ok := cfg["controller_listener"].(map[string]any)
+	if !ok {
+		t.Fatal("expected controller_listener object in response")
+	}
+	if controllerListener["ping_interval"] != "30s" {
+		t.Errorf("expected controller_listener ping_interval '30s', got '%v'", controllerListener["ping_interval"])
+	}
+	if controllerListener["pong_wait"] != "10s" {
+		t.Errorf("expected controller_listener pong_wait '10s', got '%v'", controllerListener["pong_wait"])
+	}
+	if controllerListener["registration_timeout"] != "1m0s" {
+		t.Errorf("expected controller_listener registration_timeout '1m0s', got '%v'", controllerListener["registration_timeout"])
 	}
 }
 

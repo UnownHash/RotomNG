@@ -27,20 +27,32 @@ const (
 
 	DefaultJobsPath    = "./jobs"
 	DefaultLogFilePath = "./logs/rotom-ng.log"
+
+	DefaultDevicePingInterval     = 30 * time.Second
+	DefaultDevicePongWait         = 30 * time.Second
+	DefaultControllerPingInterval = 30 * time.Second
+	DefaultControllerPongWait     = 30 * time.Second
+
+	DefaultControllerRegistrationTimeout = 60 * time.Second
 )
 
 // DeviceListener holds configuration for the device WebSocket listener.
 type DeviceListener struct {
-	Address  string       `koanf:"address"`
-	Listener net.Listener `koanf:"-"`
-	Secret   string       `koanf:"secret"`
+	Address      string        `koanf:"address"`
+	Listener     net.Listener  `koanf:"-"`
+	Secret       string        `koanf:"secret"`
+	PingInterval time.Duration `koanf:"ping_interval"`
+	PongWait     time.Duration `koanf:"pong_wait"`
 }
 
 // ControllerListener holds configuration for the controller WebSocket listener.
 type ControllerListener struct {
-	Address  string       `koanf:"address"`
-	Listener net.Listener `koanf:"-"`
-	Secret   string       `koanf:"secret"`
+	Address             string        `koanf:"address"`
+	Listener            net.Listener  `koanf:"-"`
+	Secret              string        `koanf:"secret"`
+	PingInterval        time.Duration `koanf:"ping_interval"`
+	PongWait            time.Duration `koanf:"pong_wait"`
+	RegistrationTimeout time.Duration `koanf:"registration_timeout"`
 }
 
 // HTTPListener holds configuration for the HTTP API listener.
@@ -115,6 +127,33 @@ func LoadFromFile(filePath string) (*Config, error) {
 	return &cfg, cfg.Validate()
 }
 
+func (d *DeviceListener) setDefaults() {
+	if d.Address == "" {
+		d.Address = DefaultDeviceAddress
+	}
+	if d.PingInterval <= 0 {
+		d.PingInterval = DefaultDevicePingInterval
+	}
+	if d.PongWait <= 0 {
+		d.PongWait = DefaultDevicePongWait
+	}
+}
+
+func (c *ControllerListener) setDefaults() {
+	if c.Address == "" {
+		c.Address = DefaultControllerAddress
+	}
+	if c.PingInterval <= 0 {
+		c.PingInterval = DefaultControllerPingInterval
+	}
+	if c.PongWait <= 0 {
+		c.PongWait = DefaultControllerPongWait
+	}
+	if c.RegistrationTimeout <= 0 {
+		c.RegistrationTimeout = DefaultControllerRegistrationTimeout
+	}
+}
+
 // SetDefaults sets default values for the configuration.
 func (cfg *Config) SetDefaults() {
 	// Set global shutdown timeout if not specified
@@ -126,17 +165,13 @@ func (cfg *Config) SetDefaults() {
 	if cfg.DeviceListener == nil {
 		cfg.DeviceListener = &DeviceListener{}
 	}
-	if cfg.DeviceListener.Address == "" {
-		cfg.DeviceListener.Address = DefaultDeviceAddress
-	}
+	cfg.DeviceListener.setDefaults()
 
 	// Initialize ControllerListener if nil
 	if cfg.ControllerListener == nil {
 		cfg.ControllerListener = &ControllerListener{}
 	}
-	if cfg.ControllerListener.Address == "" {
-		cfg.ControllerListener.Address = DefaultControllerAddress
-	}
+	cfg.ControllerListener.setDefaults()
 
 	// Initialize HTTPListener if nil
 	if cfg.HTTPListener == nil {
