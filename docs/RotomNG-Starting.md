@@ -2,12 +2,14 @@
 
 Configuration for RotomNG lives in [configs](../configs).
 
-There is an example config file that should be copied to rotom.toml and
+There is an example config file that should be copied to rotom-ng.toml and
 edited to your liking. All sections are optional and have sensible defaults.
 
 If you are migrating from OG Rotom, there is a conversion script at
 [configs/rotom-og-to-ng.py](../configs/rotom-og-to-ng.py) that will convert
-your existing config to the new format.
+your existing config to the new format. Run it with two arguments, your old
+config file followed by `rotom-ng.toml`, to write the converted config directly
+to `rotom-ng.toml` (for example, `python3 configs/rotom-og-to-ng.py old-config.json rotom-ng.toml`).
 
 # Building and starting
 
@@ -80,5 +82,5 @@ $ ./rotom-ng
 You can also specify a config file path:
 
 ```
-$ ./rotom-ng /path/to/rotom.toml
+$ ./rotom-ng /path/to/rotom-ng.toml
 ```
