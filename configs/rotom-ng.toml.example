@@ -5,11 +5,12 @@
 # All sections are optional - if not specified, sensible defaults will be used.
 
 # Device listener configuration (optional)
-# Handles connections from mitm devices (e.g., RealDeviceMap devices)
+# Handles connections from mitm devices (e.g., RealDeviceMap devices) as well as
+# MITM workers, which connect on this listener.
 [device_listener]
 address = ":7070"  # Default: ":7070"
 # secret = "your-device-secret-here"  # Optional authentication secret for device connections
-# ping_interval = "30s"  # Default: "30s". Interval between websocket pings used to enforce the read timeout
+# ping_interval = "30s"  # Default: "30s". Interval between websocket pings used to enforce the read timeout (applies to device AND worker connections)
 # pong_wait = "30s"      # Default: "30s". Extra grace beyond ping_interval to receive a pong before the read times out (effective read timeout = ping_interval + pong_wait)
 
 # Controller listener configuration (optional)
