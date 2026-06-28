@@ -66,6 +66,7 @@ export const generateDevices = (
         message_last_sent_at_ms: lastSeen - randInt(0, 60_000),
         messages_sent: randInt(1000, 500_000),
         bytes_sent: randInt(100_000, 50_000_000),
+        last_seen_at_ms: lastSeen,
       },
       message_last_received_at_ms: lastSeen,
       messages_received: randInt(1000, 1_000_000),

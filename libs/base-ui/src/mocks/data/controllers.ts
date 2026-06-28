@@ -26,5 +26,6 @@ export const generateControllers = (count: number): MockController[] =>
       message_last_sent_at_ms: lastSeen - randInt(0, 30_000),
       messages_sent: randInt(100, 100_000),
       bytes_sent: randInt(10_000, 10_000_000),
+      last_seen_at_ms: lastSeen,
     };
   });

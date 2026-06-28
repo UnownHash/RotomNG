@@ -258,7 +258,7 @@ const DevicesTableComponent: React.FC<DevicesTableComponentProps> = ({
                     </TableHead>
                     <TableHead className="text-center">
                       <SortHeader
-                        field="last_seen"
+                        field="last_seen_at_ms"
                         sortBy={sortBy}
                         sortOrder={sortOrder}
                         onSort={handleSort}
@@ -354,10 +354,7 @@ const DevicesTableComponent: React.FC<DevicesTableComponentProps> = ({
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-center">
                             <RelativeTimeLabel
-                              timestamp={Math.max(
-                                device.message_last_received_at_ms || 0,
-                                device.message_last_sent_at_ms || 0,
-                              )}
+                              timestamp={device.last_seen_at_ms}
                             />
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-center">

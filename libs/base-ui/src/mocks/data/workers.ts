@@ -54,6 +54,7 @@ export const generateWorkers = (
         message_last_sent_at_ms: lastSeen - randInt(0, 30_000),
         messages_sent: randInt(100, 50000),
         bytes_sent: randInt(10_000, 5_000_000),
+        last_seen_at_ms: lastSeen,
       },
       time_windowed_stats: {
         requests_rate_over_30_seconds: randInt(0, 50) + Math.random(),

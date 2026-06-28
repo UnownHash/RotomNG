@@ -249,8 +249,16 @@ func (w *Conn) EnableReadTimeout(interval, pongWait time.Duration) {
 	w.readDeadlineExt.Store(int64(interval + pongWait))
 	_ = w.conn.SetReadDeadline(time.Now().Add(interval + pongWait))
 	w.conn.SetPongHandler(func(string) error {
+		now := time.Now()
 		ext := time.Duration(w.readDeadlineExt.Load())
-		return w.conn.SetReadDeadline(time.Now().Add(ext))
+		// The pong handler runs on the read goroutine inside NextReader, which
+		// does not hold statsMu, so locking here is safe and keeps GetStats
+		// consistent. Record the pong so it counts toward LastSeenAt without
+		// inflating the data-message counters.
+		w.statsMu.Lock()
+		w.stats.setPongReceived(now)
+		w.statsMu.Unlock()
+		return w.conn.SetReadDeadline(now.Add(ext))
 	})
 }
 

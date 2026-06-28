@@ -138,4 +138,50 @@ func TestConnStats_LastSeenAt(t *testing.T) {
 	if !st.LastSeenAt().Equal(future) {
 		t.Error("LastSeenAt should return ConnectedAt when it's most recent")
 	}
+
+	// Pong is most recent
+	st = &ConnStats{ConnectedAt: past, LastReceivedAt: now, LastSentAt: now, LastPongAt: future}
+	if !st.LastSeenAt().Equal(future) {
+		t.Error("LastSeenAt should return LastPongAt when it's most recent")
+	}
+}
+
+func TestConnStats_setPongReceived(t *testing.T) {
+	var st ConnStats
+	now := time.Now()
+	st.setPongReceived(now)
+
+	if !st.LastPongAt.Equal(now) {
+		t.Error("LastPongAt should be set to the pong time")
+	}
+	// A pong must not be counted as a data message.
+	if st.MessagesReceived != 0 || st.BytesReceived != 0 {
+		t.Errorf("pong should not affect message counts, got messages=%d bytes=%d", st.MessagesReceived, st.BytesReceived)
+	}
+	if !st.LastSeenAt().Equal(now) {
+		t.Error("LastSeenAt should reflect the pong time")
+	}
+}
+
+func TestConnStats_Add_LastPongAt(t *testing.T) {
+	t1 := time.Now().Add(-time.Hour)
+	t2 := time.Now()
+
+	st := ConnStats{LastPongAt: t1}
+	st.Add(ConnStats{LastPongAt: t2})
+	if !st.LastPongAt.Equal(t2) {
+		t.Error("LastPongAt should be updated to other's later value")
+	}
+
+	// A zero LastPongAt must not clobber the existing value.
+	st.Add(ConnStats{})
+	if !st.LastPongAt.Equal(t2) {
+		t.Error("LastPongAt should not be changed by zero value")
+	}
+
+	// An earlier LastPongAt must not move the timestamp backward.
+	st.Add(ConnStats{LastPongAt: t1})
+	if !st.LastPongAt.Equal(t2) {
+		t.Error("LastPongAt should keep the latest value, not an earlier one")
+	}
 }

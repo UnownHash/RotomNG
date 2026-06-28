@@ -35,6 +35,11 @@ type CommonStats struct {
 	MessageLastSentAtMs int64 `json:"message_last_sent_at_ms"`
 	MessagesSent        int64 `json:"messages_sent"`
 	BytesSent           int64 `json:"bytes_sent"`
+
+	// LastSeenAtMs is the most recent activity on the connection, including
+	// ping/pong keep-alive, not just data messages. It is the correct field for
+	// a "last seen" display.
+	LastSeenAtMs int64 `json:"last_seen_at_ms"`
 }
 
 // CommonStatsFromWebsocketStats converts WebSocket stats to CommonStats.
@@ -47,6 +52,8 @@ func (converter *Converter[D, W, C]) CommonStatsFromWebsocketStats(wsStats ws.Co
 		MessageLastSentAtMs: timeToMs(wsStats.LastSentAt),
 		MessagesSent:        wsStats.MessagesSent,
 		BytesSent:           wsStats.BytesSent,
+
+		LastSeenAtMs: timeToMs(wsStats.LastSeenAt()),
 	}
 }
 
@@ -79,7 +86,6 @@ type Device struct {
 	WorkerInUseWeightPercent float64        `json:"worker_in_use_weight_percent"`
 	WorkerMaxWeight          int            `json:"worker_max_weight"`
 	LastConnectedAtMs        int64          `json:"last_connected_at_ms"`
-	LastSeenAtMs             int64          `json:"last_seen_at_ms"`
 	Enabled                  bool           `json:"enabled"`
 	IsConnected              bool           `json:"is_connected"`
 	CanBeUsed                bool           `json:"can_be_used"`
@@ -123,7 +129,6 @@ func (converter *Converter[D, W, C]) NewDeviceFromDevice(device D, includeWorker
 		Version:           device.Version(),
 		PublicIP:          device.PublicIP(),
 		LastConnectedAtMs: timeToMs(totalStats.ConnectedAt),
-		LastSeenAtMs:      timeToMs(totalStats.LastSeenAt()),
 		Enabled:           device.IsSelectionEnabled(),
 		IsConnected:       deviceSession != nil,
 		CanBeUsed:         canBeUsed,
@@ -210,7 +215,6 @@ type Worker struct {
 	StatsDisabled     bool               `json:"stats_disabled,omitzero"`
 	UserAgent         string             `json:"user_agent"`
 	LastConnectedAtMs int64              `json:"last_connected_at_ms"`
-	LastSeenAtMs      int64              `json:"last_seen_at_ms"`
 	IsConnected       bool               `json:"is_connected"`
 	IsInUse           bool               `json:"is_in_use"`
 	Platform          string             `json:"platform"`
@@ -314,7 +318,6 @@ func (converter *Converter[D, W, C]) NewWorkerFromWorker(worker W, canBeUsed boo
 		UserAgent:         worker.UserAgent(),
 		Platform:          worker.Platform().String(),
 		LastConnectedAtMs: timeToMs(totalStats.ConnectedAt),
-		LastSeenAtMs:      timeToMs(totalStats.LastSeenAt()),
 		IsConnected:       isConnected,
 		IsInUse:           isInUse,
 		Weight:            weight,

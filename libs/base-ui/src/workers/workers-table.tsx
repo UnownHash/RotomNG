@@ -42,7 +42,7 @@ import {
 } from "../sorting";
 import { RelativeTimeLabel } from "../time-label";
 import type { Device, Worker } from "../types";
-import { getLastSeenTimestamp, useDebounce } from "../utils";
+import { useDebounce } from "../utils";
 import { WorkerDetails } from "./worker-details";
 
 interface WorkersTableProps {
@@ -131,20 +131,11 @@ const WorkersTableComponent: React.FC<{
         )
       : allWorkers;
 
-    // Add last_seen field to each worker for sorting
-    const workersWithLastSeen = filteredWorkers.map((worker) => ({
-      ...worker,
-      last_seen: getLastSeenTimestamp(
-        worker.message_last_received_at_ms,
-        worker.message_last_sent_at_ms,
-      ),
-    }));
-
     // Early return if no sorting needed
-    if (!sortBy) return workersWithLastSeen;
+    if (!sortBy) return filteredWorkers;
 
     // Then sort the filtered workers using the worker-specific sorting library with id as secondary sort
-    return [...workersWithLastSeen].sort((a, b) =>
+    return [...filteredWorkers].sort((a, b) =>
       compareWorkerItems(a, b, sortBy, sortOrder),
     );
   }, [allWorkers, sortBy, sortOrder, deferredSearch]);
@@ -276,7 +267,7 @@ const WorkersTableComponent: React.FC<{
                     </TableHead>
                     <TableHead className="w-[200px] text-center">
                       <SortHeader
-                        field="last_seen"
+                        field="last_seen_at_ms"
                         sortBy={sortBy}
                         sortOrder={sortOrder}
                         onSort={handleSort}
@@ -359,10 +350,7 @@ const WorkersTableComponent: React.FC<{
                           </TableCell>
                           <TableCell className="w-[200px] text-center">
                             <RelativeTimeLabel
-                              timestamp={getLastSeenTimestamp(
-                                worker.message_last_received_at_ms,
-                                worker.message_last_sent_at_ms,
-                              )}
+                              timestamp={worker.last_seen_at_ms}
                             />
                           </TableCell>
                         </TableRow>
