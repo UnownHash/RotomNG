@@ -15,39 +15,49 @@ type ConnStats struct {
 	LastSentAt   time.Time
 	MessagesSent int64
 	BytesSent    int64
+
+	// LastPongAt is the time the most recent pong control frame was received. It
+	// is tracked separately from LastReceivedAt (which counts data messages) so
+	// that ping/pong keep-alive activity keeps LastSeenAt fresh without skewing
+	// the message counts.
+	LastPongAt time.Time
 }
 
-// Add merges another ConnStats into this one.
+// Add merges another ConnStats into this one. Timestamps keep the latest of the
+// two values; a zero time in other never moves a timestamp backward, since the
+// zero time is before any real one.
 func (st *ConnStats) Add(other ConnStats) {
-	if !other.ConnectedAt.IsZero() {
+	if other.ConnectedAt.After(st.ConnectedAt) {
 		st.ConnectedAt = other.ConnectedAt
 	}
 
-	if !other.LastReceivedAt.IsZero() {
+	if other.LastReceivedAt.After(st.LastReceivedAt) {
 		st.LastReceivedAt = other.LastReceivedAt
 	}
 	st.MessagesReceived += other.MessagesReceived
 	st.BytesReceived += other.BytesReceived
 
-	if !other.LastSentAt.IsZero() {
+	if other.LastSentAt.After(st.LastSentAt) {
 		st.LastSentAt = other.LastSentAt
 	}
 	st.MessagesSent += other.MessagesSent
 	st.BytesSent += other.BytesSent
+
+	if other.LastPongAt.After(st.LastPongAt) {
+		st.LastPongAt = other.LastPongAt
+	}
 }
 
-// LastSeenAt returns the most recent activity timestamp for this connection.
+// LastSeenAt returns the most recent activity timestamp for this connection,
+// including ping/pong keep-alive activity.
 func (st *ConnStats) LastSeenAt() time.Time {
-	sentRecvMax := func() time.Time {
-		if st.LastReceivedAt.After(st.LastSentAt) {
-			return st.LastReceivedAt
+	latest := st.ConnectedAt
+	for _, t := range []time.Time{st.LastReceivedAt, st.LastSentAt, st.LastPongAt} {
+		if t.After(latest) {
+			latest = t
 		}
-		return st.LastSentAt
-	}()
-	if sentRecvMax.After(st.ConnectedAt) {
-		return sentRecvMax
 	}
-	return st.ConnectedAt
+	return latest
 }
 
 func (st *ConnStats) setMessageReceived(now time.Time, n int64) {
@@ -60,4 +70,8 @@ func (st *ConnStats) setMessageSent(now time.Time, n int64) {
 	st.LastSentAt = now
 	st.MessagesSent++
 	st.BytesSent += n
+}
+
+func (st *ConnStats) setPongReceived(now time.Time) {
+	st.LastPongAt = now
 }

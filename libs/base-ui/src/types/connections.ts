@@ -6,6 +6,8 @@ export interface CommonStats {
   message_last_sent_at_ms: number;
   messages_sent: number;
   bytes_sent: number;
+  // Most recent activity (incl. ping/pong keep-alive), not just data messages.
+  last_seen_at_ms: number;
 }
 
 // Device Memory interface - matches Go DeviceMemory struct
@@ -34,7 +36,6 @@ export interface Device extends CommonStats {
   worker_in_use_weight_percent: number;
   worker_max_weight: number;
   last_connected_at_ms: number;
-  last_seen_at_ms: number;
   enabled: boolean;
   is_connected: boolean;
   is_in_use: boolean;
@@ -87,7 +88,6 @@ export interface Worker extends CommonStats {
   stats_disabled?: boolean;
   user_agent: string;
   last_connected_at_ms: number;
-  last_seen_at_ms: number;
   is_connected: boolean;
   is_in_use: boolean;
   weight?: number;

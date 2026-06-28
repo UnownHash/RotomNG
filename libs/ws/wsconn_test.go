@@ -264,6 +264,64 @@ func TestWSConn_Ping(t *testing.T) {
 	}
 }
 
+// TestWSConn_PongUpdatesLastSeen verifies that the pong handler installed by
+// EnableReadTimeout records pong activity so it counts toward LastSeenAt, even
+// when no data messages flow. The server pings; the client auto-responds with a
+// pong; the server's pong handler must advance LastSeenAt without inflating the
+// received-message counters.
+func TestWSConn_PongUpdatesLastSeen(t *testing.T) {
+	serverCh := make(chan *Conn, 1)
+	client := setupPair(t, func(_ *testing.T, server *Conn) {
+		// Installs the pong handler on the reading goroutine, before any reads.
+		server.EnableReadTimeout(time.Minute, time.Minute)
+		serverCh <- server
+		for {
+			if _, err := server.Reader(context.Background()); err != nil {
+				return
+			}
+		}
+	})
+
+	// The client must be reading so it processes the server's ping control frame
+	// and auto-responds with a pong (the default ping handler).
+	go func() {
+		for {
+			if _, err := client.Reader(context.Background()); err != nil {
+				return
+			}
+		}
+	}()
+
+	server := <-serverCh
+	before := server.GetStats()
+	if !before.LastPongAt.IsZero() {
+		t.Fatal("LastPongAt should be zero before any pong")
+	}
+
+	time.Sleep(5 * time.Millisecond)
+	if err := server.Ping(context.Background()); err != nil {
+		t.Fatalf("server ping: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got := server.GetStats()
+		if !got.LastPongAt.IsZero() {
+			if !got.LastSeenAt().After(before.LastSeenAt()) {
+				t.Error("LastSeenAt should advance after a pong is received")
+			}
+			if got.MessagesReceived != before.MessagesReceived {
+				t.Errorf("pong must not change MessagesReceived: before=%d after=%d", before.MessagesReceived, got.MessagesReceived)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("server LastPongAt was not updated after receiving a pong")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestWSConn_Close(t *testing.T) {
 	serverErr := make(chan error)
 	client := setupPair(t, func(_ *testing.T, server *Conn) {

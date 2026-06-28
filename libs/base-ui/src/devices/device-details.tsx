@@ -36,13 +36,6 @@ const DeviceDetailsComponent: React.FC<DeviceDetailsProps> = ({ device }) => {
     };
   }, [device.last_memory]);
 
-  // Calculate the most recent timestamp for "Last Seen"
-  const lastSeenTimestamp = useMemo(() => {
-    const lastRecv = device.message_last_received_at_ms || 0;
-    const lastSent = device.message_last_sent_at_ms || 0;
-    return Math.max(lastRecv, lastSent);
-  }, [device.message_last_received_at_ms, device.message_last_sent_at_ms]);
-
   const hasSession = device.session;
 
   return (
@@ -114,7 +107,9 @@ const DeviceDetailsComponent: React.FC<DeviceDetailsProps> = ({ device }) => {
                     {(device.bytes_sent / 1024).toFixed(2)} KB
                   </TableCell>
                   <TableCell>
-                    <CustomRelativeTimeLabel timestamp={lastSeenTimestamp} />
+                    <CustomRelativeTimeLabel
+                      timestamp={device.last_seen_at_ms}
+                    />
                   </TableCell>
                 </TableRow>
               </TableBody>

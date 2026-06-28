@@ -34,7 +34,6 @@ export interface MockWorker extends CommonStats {
   stats_disabled?: boolean;
   user_agent: string;
   last_connected_at_ms: number;
-  last_seen_at_ms: number;
   is_connected: boolean;
   is_in_use: boolean;
   weight?: number;
@@ -56,7 +55,6 @@ export interface MockDevice extends CommonStats {
   worker_in_use_weight_percent: number;
   worker_max_weight: number;
   last_connected_at_ms: number;
-  last_seen_at_ms: number;
   enabled: boolean;
   is_connected: boolean;
   is_in_use: boolean;

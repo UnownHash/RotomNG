@@ -36,7 +36,6 @@ import {
 } from "../sorting";
 import { RelativeTimeLabel } from "../time-label";
 import type { Controller } from "../types";
-import { getLastSeenTimestamp } from "../utils";
 import { ControllerActions } from "./controller-actions";
 import { ControllerDetails } from "./controller-details";
 
@@ -96,16 +95,7 @@ const ControllersTableComponent: React.FC<ControllersTableComponentProps> = ({
 
   // Only recalculate sorted controllers when controllers array or sort parameters change
   const sortedControllers = useMemo(() => {
-    // Add last_seen field to each controller for sorting
-    const controllersWithComputedFields = controllers.map((controller) => ({
-      ...controller,
-      last_seen: getLastSeenTimestamp(
-        controller.message_last_received_at_ms,
-        controller.message_last_sent_at_ms,
-      ),
-    }));
-
-    return [...controllersWithComputedFields].sort(sortFunction);
+    return [...controllers].sort(sortFunction);
   }, [controllers, sortFunction]);
 
   // Calculate paginated controllers using the hook
@@ -241,7 +231,7 @@ const ControllersTableComponent: React.FC<ControllersTableComponentProps> = ({
                     </TableHead>
                     <TableHead className="w-[200px] text-center">
                       <SortHeader
-                        field="last_seen"
+                        field="last_seen_at_ms"
                         sortBy={sortBy}
                         sortOrder={sortOrder}
                         onSort={handleSort}
@@ -296,10 +286,7 @@ const ControllersTableComponent: React.FC<ControllersTableComponentProps> = ({
                           </TableCell>
                           <TableCell className="w-[200px] text-center">
                             <RelativeTimeLabel
-                              timestamp={getLastSeenTimestamp(
-                                controller.message_last_received_at_ms,
-                                controller.message_last_sent_at_ms,
-                              )}
+                              timestamp={controller.last_seen_at_ms}
                             />
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-center">
