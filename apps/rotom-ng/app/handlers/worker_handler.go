@@ -97,37 +97,6 @@ func NewWorkerHandler(ctx context.Context, cfg WorkerHandlerConfig) *WorkerHandl
 	}
 }
 
-// startManagedPingLoop starts a ping loop for wsConn using the current settings,
-// and restarts it whenever settings change. Runs until connCtx is done.
-func (handler *WorkerHandler) startManagedPingLoop(connCtx context.Context, wsConn *ws.Conn) {
-	settingsCh := make(chan WorkerHandlerSettings, 1)
-	dereg := handler.notify(func(s WorkerHandlerSettings) {
-		select {
-		case <-settingsCh:
-		default:
-		}
-		settingsCh <- s
-	})
-	defer dereg()
-
-	s := handler.getSettings()
-	pingCtx, pingCancel := context.WithCancel(connCtx)
-	wsConn.StartPingLoop(pingCtx, s.PingInterval, s.PongWait)
-
-	for {
-		select {
-		case <-connCtx.Done():
-			pingCancel()
-			return
-		case s = <-settingsCh:
-			pingCancel()
-			//nolint:fatcontext // each pingCtx derives directly from connCtx; chain depth is constant
-			pingCtx, pingCancel = context.WithCancel(connCtx)
-			wsConn.StartPingLoop(pingCtx, s.PingInterval, s.PongWait)
-		}
-	}
-}
-
 // HandleWorker upgrades the HTTP connection to a WebSocket and manages the worker lifecycle.
 func (handler *WorkerHandler) HandleWorker(c *gin.Context) {
 	defer handler.PreventShutdown()()
@@ -220,4 +189,35 @@ func (handler *WorkerHandler) HandleWorker(c *gin.Context) {
 	logger.LogAttrs(c.Request.Context(), slog.LevelInfo, "mitm worker registered", slog.String("remote_addr", remoteAddr))
 
 	worker.Run(ctx)
+}
+
+// startManagedPingLoop starts a ping loop for wsConn using the current settings,
+// and restarts it whenever settings change. Runs until connCtx is done.
+func (handler *WorkerHandler) startManagedPingLoop(connCtx context.Context, wsConn *ws.Conn) {
+	settingsCh := make(chan WorkerHandlerSettings, 1)
+	dereg := handler.notify(func(s WorkerHandlerSettings) {
+		select {
+		case <-settingsCh:
+		default:
+		}
+		settingsCh <- s
+	})
+	defer dereg()
+
+	s := handler.getSettings()
+	pingCtx, pingCancel := context.WithCancel(connCtx)
+	wsConn.StartPingLoop(pingCtx, s.PingInterval, s.PongWait)
+
+	for {
+		select {
+		case <-connCtx.Done():
+			pingCancel()
+			return
+		case s = <-settingsCh:
+			pingCancel()
+			//nolint:fatcontext // each pingCtx derives directly from connCtx; chain depth is constant
+			pingCtx, pingCancel = context.WithCancel(connCtx)
+			wsConn.StartPingLoop(pingCtx, s.PingInterval, s.PongWait)
+		}
+	}
 }
