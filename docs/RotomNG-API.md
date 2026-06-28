@@ -84,7 +84,7 @@ Returns the current system configuration including version, tuning parameters, a
 - `sha`: Git commit SHA of the running build
 - `instance`: Only present if configured
 - `rate_limit`: Always present
-- `device_listener` / `controller_listener`: websocket keep-alive settings. `ping_interval` and `pong_wait` are durations; the read timeout fires if no pong is received within `ping_interval + pong_wait`.
+- `device_listener` / `controller_listener`: websocket keep-alive settings. `ping_interval` and `pong_wait` are durations; the read timeout fires if no pong is received within `ping_interval + pong_wait`. The `device_listener` settings also govern MITM worker connections, which connect on the device listener.
 - `registration_timeout`: max time allowed for a controller to complete registration before the normal ping-based read timeout applies.
 
 #### Reload Configuration

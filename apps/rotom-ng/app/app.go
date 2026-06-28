@@ -85,6 +85,15 @@ func getDeviceHandlerSettings(cfg *config.Config) handlers.DeviceHandlerSettings
 	}
 }
 
+// getWorkerHandlerSettings sources the MITM worker ping read-timeout settings
+// from the device listener, since workers connect on the device listener.
+func getWorkerHandlerSettings(cfg *config.Config) app_handlers.WorkerHandlerSettings {
+	return app_handlers.WorkerHandlerSettings{
+		PingInterval: cfg.DeviceListener.PingInterval,
+		PongWait:     cfg.DeviceListener.PongWait,
+	}
+}
+
 func getJobsManagerSettings(cfg *config.Config) jobs.ManagerSettings {
 	return jobs.ManagerSettings{
 		JobsPath: cfg.Jobs.Path,
@@ -133,6 +142,7 @@ type App struct {
 	selectorConfig          selector.Config
 	connectionManagerConfig connections.ConnectionManagerConfig[*Controller, *MITMWorker]
 	deviceHandlerConfig     handlers.DeviceHandlerConfig
+	workerHandlerConfig     app_handlers.WorkerHandlerConfig
 	controllerHandlerConfig handlers.ControllerHandlerConfig[*Controller]
 	jobsManagerConfig       jobs.ManagerConfig
 	httpAPIHandlerConfig    app_handlers.HTTPAPIHandlerConfig
@@ -323,7 +333,7 @@ func (a *App) Init() error {
 	}
 	a.deviceHandler = handlers.NewDeviceHandler(a.ctx, a.deviceHandlerConfig)
 
-	workerHandlerConfig := app_handlers.WorkerHandlerConfig{
+	a.workerHandlerConfig = app_handlers.WorkerHandlerConfig{
 		Logger:                   a.logger,
 		BufferPool:               a.bufferPool,
 		MITMWorkerStatsCollector: a.statsCollector,
@@ -331,7 +341,10 @@ func (a *App) Init() error {
 		StatsCollector:           a.statsCollector,
 		GlobalRequestStats:       globalRequestStats,
 	}
-	a.workerHandler = app_handlers.NewWorkerHandler(a.ctx, workerHandlerConfig)
+	if err := a.workerHandlerConfig.Init(getWorkerHandlerSettings(a.cfg)); err != nil {
+		return fmt.Errorf("invalid worker handler config: %w", err)
+	}
+	a.workerHandler = app_handlers.NewWorkerHandler(a.ctx, a.workerHandlerConfig)
 
 	a.deviceAuthMiddleware = auth.NewMiddleware(a.cfg.DeviceListener.Secret)
 	deviceServerConfig := services.DeviceServerConfig{
@@ -459,6 +472,11 @@ func (a *App) reload() error {
 		return err
 	}
 
+	workerHandlerSettings := getWorkerHandlerSettings(cfg)
+	if err := workerHandlerSettings.Validate(); err != nil {
+		return err
+	}
+
 	controllerHandlerSettings := getControllerHandlerSettings(cfg)
 	if err := controllerHandlerSettings.Validate(); err != nil {
 		return err
@@ -492,6 +510,9 @@ func (a *App) reload() error {
 	}
 	if err := a.deviceHandlerConfig.PutSettings(deviceHandlerSettings); err != nil {
 		a.logger.LogAttrs(context.Background(), slog.LevelError, "failed to apply settings", slog.String("component", "device_handler"), slog.String("error", err.Error()))
+	}
+	if err := a.workerHandlerConfig.PutSettings(workerHandlerSettings); err != nil {
+		a.logger.LogAttrs(context.Background(), slog.LevelError, "failed to apply settings", slog.String("component", "worker_handler"), slog.String("error", err.Error()))
 	}
 	if err := a.controllerHandlerConfig.PutSettings(controllerHandlerSettings); err != nil {
 		a.logger.LogAttrs(context.Background(), slog.LevelError, "failed to apply settings", slog.String("component", "controller_handler"), slog.String("error", err.Error()))
