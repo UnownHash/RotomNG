@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -45,6 +44,10 @@ type ControllerHandlerSettings struct {
 	PingInterval        time.Duration
 	PongWait            time.Duration
 	RegistrationTimeout time.Duration
+	// DataTimeout, when > 0, considers the connection dead if no data message is
+	// received within the timeout, independent of ping/pong keep-alive activity.
+	// Zero disables it. Only controller connections use a data timeout.
+	DataTimeout time.Duration
 }
 
 // Validate validates the controller handler settings.
@@ -58,7 +61,20 @@ func (s ControllerHandlerSettings) Validate() error {
 	if s.RegistrationTimeout <= 0 {
 		return errors.New("controller registration_timeout must be positive")
 	}
+	if s.DataTimeout < 0 {
+		return errors.New("controller data_timeout must not be negative")
+	}
 	return nil
+}
+
+// pingSettings maps the handler settings to ws.PingSettings. The read timeout is
+// PingInterval+PongWait of silence (no pong or data), matching the keep-alive
+// behavior: a ping is sent every PingInterval and a healthy peer's pong resets it.
+func (s ControllerHandlerSettings) pingSettings() ws.PingSettings {
+	return ws.PingSettings{
+		Interval: s.PingInterval,
+		Timeout:  s.PingInterval + s.PongWait,
+	}
 }
 
 type controllerHandlerSettingsContainer = settings.Container[ControllerHandlerSettings]
@@ -92,35 +108,19 @@ type ControllerHandler[C Controller] struct {
 	notify            func(func(ControllerHandlerSettings)) func()
 }
 
-// startManagedPingLoop starts a ping loop for wsConn using the current settings,
-// and restarts it whenever settings change. Runs until connCtx is done.
-func (handler *ControllerHandler[C]) startManagedPingLoop(connCtx context.Context, wsConn *ws.Conn) {
-	settingsCh := make(chan ControllerHandlerSettings, 1)
-	dereg := handler.notify(func(s ControllerHandlerSettings) {
-		select {
-		case <-settingsCh:
-		default:
-		}
-		settingsCh <- s
+// applyReadTimeouts hands read-timeout enforcement to the Conn's timeout
+// goroutine. It registers for settings changes first, then applies the current
+// values, so a reload landing between the two cannot be missed. The returned
+// function deregisters the settings watcher.
+func (handler *ControllerHandler[C]) applyReadTimeouts(wsConn *ws.Conn) (dereg func()) {
+	dereg = handler.notify(func(s ControllerHandlerSettings) {
+		_ = wsConn.SetPingSettings(s.pingSettings())
+		_ = wsConn.SetReadDataTimeout(s.DataTimeout)
 	})
-	defer dereg()
-
 	s := handler.getSettings()
-	pingCtx, pingCancel := context.WithCancel(connCtx)
-	wsConn.StartPingLoop(pingCtx, s.PingInterval, s.PongWait)
-
-	for {
-		select {
-		case <-connCtx.Done():
-			pingCancel()
-			return
-		case s = <-settingsCh:
-			pingCancel()
-			//nolint:fatcontext // each pingCtx derives directly from connCtx; chain depth is constant
-			pingCtx, pingCancel = context.WithCancel(connCtx)
-			wsConn.StartPingLoop(pingCtx, s.PingInterval, s.PongWait)
-		}
-	}
+	_ = wsConn.SetPingSettings(s.pingSettings())
+	_ = wsConn.SetReadDataTimeout(s.DataTimeout)
+	return dereg
 }
 
 func (handler *ControllerHandler[C]) handleController(c *gin.Context, isV2 bool) {
@@ -153,33 +153,21 @@ func (handler *ControllerHandler[C]) handleController(c *gin.Context, isV2 bool)
 		return
 	}
 
-	// Install the read deadline and pong handler synchronously, before the
-	// registration handshake reads from the connection. This bounds the
-	// handshake and must happen on this (the reading) goroutine so it cannot
-	// race with the reads or the Close performed during registration. The ping
-	// loop itself is only started once registration succeeds (see below).
+	// Bound the registration handshake with a manual read deadline. The Conn's
+	// timeout goroutine is idle (default ping settings) until we enable the ping
+	// and data timeouts after registration succeeds.
 	s := handler.getSettings()
-	// EnableReadTimeout installs the pong handler and stores the normal
-	// (PingInterval+PongWait) extension used once the ping loop runs. During the
-	// registration handshake no pings run yet, so give it its own, longer,
-	// separately-configurable budget. Safe to set here: this is the reading
-	// goroutine and the ping loop has not started.
-	wsConn.EnableReadTimeout(s.PingInterval, s.PongWait)
 	_ = wsConn.SetReadDeadline(time.Now().Add(s.RegistrationTimeout))
 
-	// pingLoopCtx is cancelled inside closeWsConn before wsConn.Close() so that
-	// startManagedPingLoop cannot call wg.Go after wg.Wait has returned.
-	pingLoopCtx, pingLoopCancel := context.WithCancel(ctx)
-	var pingLoopWg sync.WaitGroup
-
-	go func(ctx context.Context) {
-		<-ctx.Done()
+	// On app shutdown, expire the read deadline to unblock any reader stuck in
+	// Run (Reader does not observe ctx). stop() deregisters on handler return so
+	// nothing lingers once the connection ends.
+	stop := context.AfterFunc(ctx, func() {
 		_ = wsConn.SetReadDeadline(time.Now())
-	}(ctx)
+	})
+	defer stop()
 
 	closeWsConn := func(code int, reason string) {
-		pingLoopCancel()
-		pingLoopWg.Wait()
 		if ctx.Err() != nil {
 			_ = wsConn.Close(ws.StatusGoingAway, "rotom is shutting down")
 			return
@@ -230,16 +218,11 @@ func (handler *ControllerHandler[C]) handleController(c *gin.Context, isV2 bool)
 	handler.statsCollector.IncrControllerConnections(userAgent)
 	defer handler.statsCollector.DecrControllerConnections(userAgent)
 
-	// Registration complete: drop back to the normal ping-based read deadline
-	// before the ping loop takes over extending it on each pong.
-	_ = wsConn.SetReadDeadline(time.Now().Add(s.PingInterval + s.PongWait))
-
-	// Registration is complete; start the managed ping loop now that nothing
-	// else mutates the connection's read state. It is safe to run concurrently
-	// with the reads performed by controller.Run.
-	pingLoopWg.Go(func() {
-		handler.startManagedPingLoop(pingLoopCtx, wsConn)
-	})
+	// Registration complete: clear the handshake deadline and hand read-timeout
+	// enforcement to the Conn's timeout goroutine (ping + data timeouts), which
+	// runs safely alongside the reads performed by controller.Run.
+	_ = wsConn.SetReadDeadline(time.Time{})
+	defer handler.applyReadTimeouts(wsConn)()
 
 	ctx = logging.ContextWithLogger(ctx, logger)
 	controller.Run(ctx)

@@ -265,15 +265,13 @@ func TestWSConn_Ping(t *testing.T) {
 }
 
 // TestWSConn_PongUpdatesLastSeen verifies that the pong handler installed by
-// EnableReadTimeout records pong activity so it counts toward LastSeenAt, even
-// when no data messages flow. The server pings; the client auto-responds with a
-// pong; the server's pong handler must advance LastSeenAt without inflating the
+// NewConn records pong activity so it counts toward LastSeenAt, even when no
+// data messages flow. The server pings; the client auto-responds with a pong;
+// the server's pong handler must advance LastSeenAt without inflating the
 // received-message counters.
 func TestWSConn_PongUpdatesLastSeen(t *testing.T) {
 	serverCh := make(chan *Conn, 1)
 	client := setupPair(t, func(_ *testing.T, server *Conn) {
-		// Installs the pong handler on the reading goroutine, before any reads.
-		server.EnableReadTimeout(time.Minute, time.Minute)
 		serverCh <- server
 		for {
 			if _, err := server.Reader(context.Background()); err != nil {
@@ -1569,11 +1567,15 @@ func TestWSConn_WriteJSONAsync_ClosedConnection(t *testing.T) {
 	}
 }
 
-func TestWSConn_StartPingLoop_SendsPings(t *testing.T) {
+func TestWSConn_PingSettings_SendsPings(t *testing.T) {
 	pingReceived := make(chan struct{}, 8)
 
 	client := setupPair(t, func(_ *testing.T, server *Conn) {
-		server.StartPingLoop(context.Background(), 20*time.Millisecond, 100*time.Millisecond)
+		// Interval enables pinging; Timeout 0 disables the read timeout so the
+		// server never declares death even though the client below suppresses pongs.
+		if err := server.SetPingSettings(PingSettings{Interval: 20 * time.Millisecond}); err != nil {
+			t.Errorf("SetPingSettings: %v", err)
+		}
 		// Read so the server processes pong control frames and stays alive.
 		for {
 			reader, err := server.Reader(context.Background())
@@ -1607,18 +1609,20 @@ func TestWSConn_StartPingLoop_SendsPings(t *testing.T) {
 	select {
 	case <-pingReceived:
 	case <-time.After(2 * time.Second):
-		t.Fatal("no ping received from StartPingLoop within 2s")
+		t.Fatal("no ping received from the timeout goroutine within 2s")
 	}
 }
 
-func TestWSConn_StartPingLoop_PongExtendsDeadline(t *testing.T) {
-	// interval+pongWait = 80ms read deadline. The client auto-responds to pings with
-	// pongs (default handler), which must extend the server's read deadline well past
-	// 80ms so the data message sent at 200ms is still received.
+// TestWSConn_PingTimeout_PongKeepsAlive verifies that pong activity resets the
+// ping timeout: the server pings every 30ms with an 80ms timeout, the client
+// auto-responds with pongs, and a data message sent well past the timeout is
+// still received because the pongs kept the connection alive.
+func TestWSConn_PingTimeout_PongKeepsAlive(t *testing.T) {
 	got := make(chan []byte, 1)
 	client := setupPair(t, func(_ *testing.T, server *Conn) {
-		server.EnableReadTimeout(30*time.Millisecond, 50*time.Millisecond)
-		server.StartPingLoop(context.Background(), 30*time.Millisecond, 50*time.Millisecond)
+		if err := server.SetPingSettings(PingSettings{Interval: 30 * time.Millisecond, Timeout: 80 * time.Millisecond}); err != nil {
+			t.Errorf("SetPingSettings: %v", err)
+		}
 		reader, err := server.Reader(context.Background())
 		if err != nil {
 			return
@@ -1640,8 +1644,8 @@ func TestWSConn_StartPingLoop_PongExtendsDeadline(t *testing.T) {
 		}
 	}()
 
-	// Send data well after the 80ms read deadline; only pong-driven extension keeps
-	// the server's reader alive long enough to receive it.
+	// Send data well after the 80ms timeout; only pong activity keeps the
+	// server's reader alive long enough to receive it.
 	time.Sleep(200 * time.Millisecond)
 	if err := client.Write(context.Background(), MessageText, []byte("alive")); err != nil {
 		t.Fatalf("Write failed: %v", err)
@@ -1653,19 +1657,97 @@ func TestWSConn_StartPingLoop_PongExtendsDeadline(t *testing.T) {
 			t.Errorf("server received %q, want %q", data, "alive")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("server read timed out — pong did not extend the read deadline")
+		t.Fatal("server read timed out — pong did not reset the ping timeout")
 	}
 }
 
-func TestWSConn_StartPingLoop_StopsOnContextCancel(t *testing.T) {
-	pings := make(chan struct{}, 16)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	started := make(chan struct{})
+// TestWSConn_PingTimeout_FiresWithoutPong verifies that when the peer never
+// responds with a pong (or data), the ping timeout expires, Reader returns
+// errReadTimeout, and IsErrReadTimeout recognizes it.
+func TestWSConn_PingTimeout_FiresWithoutPong(t *testing.T) {
+	readErr := make(chan error, 1)
 	client := setupPair(t, func(_ *testing.T, server *Conn) {
-		server.StartPingLoop(ctx, 20*time.Millisecond, 100*time.Millisecond)
-		close(started)
+		if err := server.SetPingSettings(PingSettings{Interval: 20 * time.Millisecond, Timeout: 40 * time.Millisecond}); err != nil {
+			t.Errorf("SetPingSettings: %v", err)
+		}
+		_, err := server.Reader(context.Background())
+		readErr <- err
+	})
+	defer client.Close(StatusNormalClosure, "")
+
+	// The client suppresses the automatic pong response, so the server receives
+	// neither a pong nor any data and must time out.
+	client.conn.SetPingHandler(func(string) error { return nil })
+	go func() {
+		for {
+			reader, err := client.Reader(context.Background())
+			if err != nil {
+				return
+			}
+			reader.Done()
+		}
+	}()
+
+	select {
+	case err := <-readErr:
+		if !IsErrReadTimeout(err) {
+			t.Fatalf("Reader err = %v, want errReadTimeout", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ping timeout did not fire")
+	}
+}
+
+// TestWSConn_DataTimeout_FiresWithoutData verifies that the data timeout fires
+// when no data message arrives, even though pong activity keeps flowing.
+func TestWSConn_DataTimeout_FiresWithoutData(t *testing.T) {
+	readErr := make(chan error, 1)
+	client := setupPair(t, func(_ *testing.T, server *Conn) {
+		// Ping keep-alive with no ping timeout, plus a short data timeout. Pongs
+		// keep the ping side alive but must not reset the data timeout.
+		if err := server.SetPingSettings(PingSettings{Interval: 20 * time.Millisecond}); err != nil {
+			t.Errorf("SetPingSettings: %v", err)
+		}
+		if err := server.SetReadDataTimeout(60 * time.Millisecond); err != nil {
+			t.Errorf("SetReadDataTimeout: %v", err)
+		}
+		_, err := server.Reader(context.Background())
+		readErr <- err
+	})
+	defer client.Close(StatusNormalClosure, "")
+
+	// Client auto-pongs (default handler) but never sends data.
+	go func() {
+		for {
+			reader, err := client.Reader(context.Background())
+			if err != nil {
+				return
+			}
+			reader.Done()
+		}
+	}()
+
+	select {
+	case err := <-readErr:
+		if !IsErrReadDataTimeout(err) {
+			t.Fatalf("Reader err = %v, want errReadDataTimeout", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("data timeout did not fire")
+	}
+}
+
+// TestWSConn_PingSettings_DisableStopsPings verifies that setting the ping
+// interval back to zero stops the pings.
+func TestWSConn_PingSettings_DisableStopsPings(t *testing.T) {
+	pings := make(chan struct{}, 16)
+
+	serverCh := make(chan *Conn, 1)
+	client := setupPair(t, func(_ *testing.T, server *Conn) {
+		if err := server.SetPingSettings(PingSettings{Interval: 20 * time.Millisecond}); err != nil {
+			t.Errorf("SetPingSettings: %v", err)
+		}
+		serverCh <- server
 		for {
 			reader, err := server.Reader(context.Background())
 			if err != nil {
@@ -1693,17 +1775,20 @@ func TestWSConn_StartPingLoop_StopsOnContextCancel(t *testing.T) {
 		}
 	}()
 
-	<-started
+	server := <-serverCh
 
 	select {
 	case <-pings:
 	case <-time.After(2 * time.Second):
-		t.Fatal("no ping received before cancel")
+		t.Fatal("no ping received before disabling")
 	}
 
-	cancel()
+	// Disable pinging and confirm pings stop.
+	if err := server.SetPingSettings(PingSettings{}); err != nil {
+		t.Fatalf("SetPingSettings disable: %v", err)
+	}
 
-	// Allow the loop to observe cancellation and drain any in-flight ping.
+	// Drain any in-flight ping.
 	time.Sleep(100 * time.Millisecond)
 	for draining := true; draining; {
 		select {
@@ -1715,8 +1800,25 @@ func TestWSConn_StartPingLoop_StopsOnContextCancel(t *testing.T) {
 
 	select {
 	case <-pings:
-		t.Fatal("ping received after context cancel")
+		t.Fatal("ping received after pinging was disabled")
 	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+// TestWSConn_SetPingSettings_RejectsNegative verifies validation of negative
+// durations.
+func TestWSConn_SetPingSettings_RejectsNegative(t *testing.T) {
+	client := setupEchoPair(t)
+	defer client.Close(StatusNormalClosure, "")
+
+	if err := client.SetPingSettings(PingSettings{Interval: -1}); err == nil {
+		t.Error("SetPingSettings(negative interval) = nil, want error")
+	}
+	if err := client.SetPingSettings(PingSettings{Timeout: -1}); err == nil {
+		t.Error("SetPingSettings(negative timeout) = nil, want error")
+	}
+	if err := client.SetReadDataTimeout(-1); err == nil {
+		t.Error("SetReadDataTimeout(negative) = nil, want error")
 	}
 }
 
