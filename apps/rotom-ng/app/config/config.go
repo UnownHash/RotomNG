@@ -34,6 +34,11 @@ const (
 	DefaultControllerPongWait     = 30 * time.Second
 
 	DefaultControllerRegistrationTimeout = 60 * time.Second
+
+	// DefaultControllerDataTimeout is the default controller data timeout: a
+	// controller connection that receives no data message within this period is
+	// considered dead, independent of ping/pong keep-alive activity.
+	DefaultControllerDataTimeout = 2 * time.Minute
 )
 
 // DeviceListener holds configuration for the device WebSocket listener.
@@ -53,6 +58,12 @@ type ControllerListener struct {
 	PingInterval        time.Duration `koanf:"ping_interval"`
 	PongWait            time.Duration `koanf:"pong_wait"`
 	RegistrationTimeout time.Duration `koanf:"registration_timeout"`
+	// DataTimeout considers the controller connection dead if no data message is
+	// received within this period, independent of ping/pong keep-alive activity.
+	// A pointer so an unset value (nil) can be distinguished from an explicit 0:
+	// nil defaults to DefaultControllerDataTimeout, while an explicit 0 disables
+	// the data timeout. Applies only to controller connections.
+	DataTimeout *time.Duration `koanf:"data_timeout"`
 }
 
 // HTTPListener holds configuration for the HTTP API listener.
@@ -151,6 +162,16 @@ func (c *ControllerListener) setDefaults() {
 	}
 	if c.RegistrationTimeout <= 0 {
 		c.RegistrationTimeout = DefaultControllerRegistrationTimeout
+	}
+	// A nil (unset) data timeout falls back to the default; an explicit value —
+	// including 0, which disables it — is preserved. A negative value is
+	// meaningless, so treat it as disabled.
+	switch {
+	case c.DataTimeout == nil:
+		d := DefaultControllerDataTimeout
+		c.DataTimeout = &d
+	case *c.DataTimeout < 0:
+		*c.DataTimeout = 0
 	}
 }
 

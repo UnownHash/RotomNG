@@ -3,16 +3,19 @@ package ws
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/fasthttp/websocket"
 )
 
 // dialConfig holds the resolved dial options.
 type dialConfig struct {
-	subprotocols []string
-	httpHeader   http.Header
-	compression  bool
-	bufferPool   BufferPool
+	subprotocols    []string
+	httpHeader      http.Header
+	compression     bool
+	bufferPool      BufferPool
+	pingSettings    *PingSettings
+	readDataTimeout *time.Duration
 }
 
 // DialOption configures the Dial call.
@@ -50,6 +53,30 @@ func WithDialBufferPoolOpt(bufferPool BufferPool) DialOption {
 	}
 }
 
+// WithDialPingSettings sets the initial ping keep-alive settings on the dialed
+// connection. Negative durations are rejected.
+func WithDialPingSettings(s PingSettings) DialOption {
+	return func(c *dialConfig) error {
+		if !s.IsValid() {
+			return errInvalidPingSettings
+		}
+		c.pingSettings = &s
+		return nil
+	}
+}
+
+// WithDialReadDataTimeout sets the initial data read timeout on the dialed
+// connection. Zero disables it; a negative value is rejected.
+func WithDialReadDataTimeout(d time.Duration) DialOption {
+	return func(c *dialConfig) error {
+		if d < 0 {
+			return errInvalidReadDataTimeout
+		}
+		c.readDataTimeout = &d
+		return nil
+	}
+}
+
 // Dial dials a WebSocket connection and returns a Conn.
 // Context is only used for the actual Dial, so one can provide a timeout.
 // Later, one must call Close() to close the connection and clean up resources.
@@ -71,6 +98,14 @@ func Dial(ctx context.Context, u string, opts ...DialOption) (*Conn, *http.Respo
 		return nil, resp, err
 	}
 
-	wsConn := NewConn(conn, WithBufferPoolOpt(cfg.bufferPool))
+	connOpts := []ConnOption{WithBufferPoolOpt(cfg.bufferPool)}
+	if cfg.pingSettings != nil {
+		connOpts = append(connOpts, WithPingSettings(*cfg.pingSettings))
+	}
+	if cfg.readDataTimeout != nil {
+		connOpts = append(connOpts, WithReadDataTimeout(*cfg.readDataTimeout))
+	}
+
+	wsConn := NewConn(conn, connOpts...)
 	return wsConn, resp, nil
 }

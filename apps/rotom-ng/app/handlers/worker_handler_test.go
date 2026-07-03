@@ -116,11 +116,11 @@ func dialWorkerWSConn(t *testing.T) *ws.Conn {
 	return c
 }
 
-// TestWorkerHandler_StartManagedPingLoop_RestartsOnSettingsChange verifies that a
-// settings change delivered through the container restarts the ping loop with the
-// new interval. The loop starts with a 1h interval (no ping), then a reload to
+// TestWorkerHandler_ApplyReadTimeouts_ReloadChangesPings verifies that a settings
+// change delivered through the container is pushed to the connection's ping
+// settings. The connection starts with a 1h interval (no ping), then a reload to
 // 20ms must produce pings.
-func TestWorkerHandler_StartManagedPingLoop_RestartsOnSettingsChange(t *testing.T) {
+func TestWorkerHandler_ApplyReadTimeouts_ReloadChangesPings(t *testing.T) {
 	handler, container := newPingTestWorkerHandler(t, WorkerHandlerSettings{
 		PingInterval: time.Hour,
 		PongWait:     time.Minute,
@@ -134,9 +134,12 @@ func TestWorkerHandler_StartManagedPingLoop_RestartsOnSettingsChange(t *testing.
 			return
 		}
 		defer sConn.Close(ws.StatusNormalClosure, "")
-		handler.startManagedPingLoop(loopCtx, sConn)
+		dereg := handler.applyReadTimeouts(sConn)
+		defer dereg()
+		// Keep the connection (and its timeout goroutine) alive until the test ends.
+		<-loopCtx.Done()
 	}))
-	// Cancel the loop before tearing down the server so the handler returns.
+	// Cancel before tearing down the server so the handler returns.
 	defer srv.Close()
 	defer cancel()
 
@@ -184,29 +187,30 @@ func TestWorkerHandler_StartManagedPingLoop_RestartsOnSettingsChange(t *testing.
 	}
 }
 
-// TestWorkerHandler_StartManagedPingLoop_ReturnsOnContextCancel verifies the
-// managed loop exits promptly when its context is cancelled. Run under -race this
-// also exercises the StartPingLoop / WaitGroup interaction.
-func TestWorkerHandler_StartManagedPingLoop_ReturnsOnContextCancel(t *testing.T) {
+// TestWorkerHandler_ApplyReadTimeouts_StopsOnConnClose verifies that after
+// applyReadTimeouts enables the ping keep-alive, closing the connection returns
+// promptly — i.e. the Conn's timeout goroutine exits cleanly (exercised under
+// -race).
+func TestWorkerHandler_ApplyReadTimeouts_StopsOnConnClose(t *testing.T) {
 	wsConn := dialWorkerWSConn(t)
 	handler, _ := newPingTestWorkerHandler(t, WorkerHandlerSettings{
 		PingInterval: 50 * time.Millisecond,
 		PongWait:     50 * time.Millisecond,
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	dereg := handler.applyReadTimeouts(wsConn)
+	time.Sleep(20 * time.Millisecond)
+	dereg()
+
 	done := make(chan struct{})
 	go func() {
-		handler.startManagedPingLoop(ctx, wsConn)
+		_ = wsConn.Close(ws.StatusNormalClosure, "")
 		close(done)
 	}()
-
-	time.Sleep(20 * time.Millisecond)
-	cancel()
 
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("startManagedPingLoop did not return after context cancel")
+		t.Fatal("Close did not return — timeout goroutine leaked")
 	}
 }

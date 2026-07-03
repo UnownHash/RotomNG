@@ -71,10 +71,15 @@ func getConnectionManagerSettings(cfg *config.Config) connections.ConnectionMana
 }
 
 func getControllerHandlerSettings(cfg *config.Config) handlers.ControllerHandlerSettings {
+	var dataTimeout time.Duration
+	if cfg.ControllerListener.DataTimeout != nil {
+		dataTimeout = *cfg.ControllerListener.DataTimeout
+	}
 	return handlers.ControllerHandlerSettings{
 		PingInterval:        cfg.ControllerListener.PingInterval,
 		PongWait:            cfg.ControllerListener.PongWait,
 		RegistrationTimeout: cfg.ControllerListener.RegistrationTimeout,
+		DataTimeout:         dataTimeout,
 	}
 }
 

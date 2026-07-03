@@ -4,6 +4,7 @@ package handlers
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -103,10 +104,15 @@ func (ah *HTTPAPIHandler) GetConfig(c *gin.Context) {
 		}
 	}
 	if cfg.ControllerListener != nil {
+		var dataTimeout time.Duration
+		if cfg.ControllerListener.DataTimeout != nil {
+			dataTimeout = *cfg.ControllerListener.DataTimeout
+		}
 		jsonConfig["controller_listener"] = gin.H{
 			"ping_interval":        cfg.ControllerListener.PingInterval.String(),
 			"pong_wait":            cfg.ControllerListener.PongWait.String(),
 			"registration_timeout": cfg.ControllerListener.RegistrationTimeout.String(),
+			"data_timeout":         dataTimeout.String(),
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "config": jsonConfig})

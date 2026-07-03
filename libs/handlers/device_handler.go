@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -45,6 +44,16 @@ func (s DeviceHandlerSettings) Validate() error {
 		return errors.New("device pong_wait must be positive")
 	}
 	return nil
+}
+
+// pingSettings maps the handler settings to ws.PingSettings. The read timeout is
+// PingInterval+PongWait of silence (no pong or data), matching the keep-alive
+// behavior: a ping is sent every PingInterval and a healthy peer's pong resets it.
+func (s DeviceHandlerSettings) pingSettings() ws.PingSettings {
+	return ws.PingSettings{
+		Interval: s.PingInterval,
+		Timeout:  s.PingInterval + s.PongWait,
+	}
 }
 
 type deviceHandlerSettingsContainer = settings.Container[DeviceHandlerSettings]
@@ -127,26 +136,19 @@ func (handler *DeviceHandler) HandleDeviceControl(c *gin.Context) {
 	// we must have panicked during Register.
 	defer wsConn.Close(ws.StatusInternalServerError, "unexpected error handling device connection")
 
-	// Install the read deadline and pong handler synchronously, before the
-	// registration handshake reads from the connection. This bounds the
-	// handshake and must happen on this (the reading) goroutine so it cannot
-	// race with the reads or Close performed during registration. The ping loop
-	// itself is only started once registration succeeds (see below).
+	// Bound the registration handshake with a manual read deadline. The Conn's
+	// timeout goroutine is idle (default ping settings) until we enable pinging
+	// after registration succeeds.
 	s := handler.getSettings()
-	wsConn.EnableReadTimeout(s.PingInterval, s.PongWait)
+	_ = wsConn.SetReadDeadline(time.Now().Add(s.PingInterval + s.PongWait))
 
-	// pingLoopCtx is cancelled before wsConn.Close() (LIFO defer order) so that
-	// startManagedPingLoop cannot call wg.Go after wg.Wait has returned.
-	pingLoopCtx, pingLoopCancel := context.WithCancel(ctx)
-	var pingLoopWg sync.WaitGroup
-	defer func() {
-		pingLoopCancel()
-		pingLoopWg.Wait()
-	}()
-	go func(ctx context.Context) {
-		<-ctx.Done()
+	// On app shutdown, expire the read deadline to unblock any reader stuck in
+	// Run (Reader does not observe ctx). stop() deregisters on handler return so
+	// nothing lingers once the connection ends.
+	stop := context.AfterFunc(ctx, func() {
 		_ = wsConn.SetReadDeadline(time.Now())
-	}(ctx)
+	})
+	defer stop()
 
 	handler.statsCollector.IncrDeviceControlAccepts()
 
@@ -160,12 +162,11 @@ func (handler *DeviceHandler) HandleDeviceControl(c *gin.Context) {
 	}
 	defer deviceConn.Close(ws.StatusNormalClosure, "")
 
-	// Registration is complete; start the managed ping loop now that nothing
-	// else mutates the connection's read state. It is safe to run concurrently
-	// with the reads performed by deviceConn.Run.
-	pingLoopWg.Go(func() {
-		handler.startManagedPingLoop(pingLoopCtx, wsConn)
-	})
+	// Registration complete: clear the handshake deadline and hand read-timeout
+	// enforcement to the Conn's timeout goroutine, which runs safely alongside
+	// the reads performed by deviceConn.Run.
+	_ = wsConn.SetReadDeadline(time.Time{})
+	defer handler.applyReadTimeouts(wsConn)()
 
 	logger = logger.With(slog.String("device_id", deviceConn.ID()))
 	ctx = logging.ContextWithLogger(ctx, logger)
@@ -175,33 +176,14 @@ func (handler *DeviceHandler) HandleDeviceControl(c *gin.Context) {
 	deviceConn.Run(ctx, handler.deviceMonitorConfig)
 }
 
-// startManagedPingLoop starts a ping loop for wsConn using the current settings,
-// and restarts it whenever settings change. Runs until connCtx is done.
-func (handler *DeviceHandler) startManagedPingLoop(connCtx context.Context, wsConn *ws.Conn) {
-	settingsCh := make(chan DeviceHandlerSettings, 1)
-	dereg := handler.notify(func(s DeviceHandlerSettings) {
-		select {
-		case <-settingsCh:
-		default:
-		}
-		settingsCh <- s
+// applyReadTimeouts hands read-timeout enforcement to the Conn's timeout
+// goroutine. It registers for settings changes first, then applies the current
+// values, so a reload landing between the two cannot be missed. The returned
+// function deregisters the settings watcher.
+func (handler *DeviceHandler) applyReadTimeouts(wsConn *ws.Conn) (dereg func()) {
+	dereg = handler.notify(func(s DeviceHandlerSettings) {
+		_ = wsConn.SetPingSettings(s.pingSettings())
 	})
-	defer dereg()
-
-	s := handler.getSettings()
-	pingCtx, pingCancel := context.WithCancel(connCtx)
-	wsConn.StartPingLoop(pingCtx, s.PingInterval, s.PongWait)
-
-	for {
-		select {
-		case <-connCtx.Done():
-			pingCancel()
-			return
-		case s = <-settingsCh:
-			pingCancel()
-			//nolint:fatcontext // each pingCtx derives directly from connCtx; chain depth is constant
-			pingCtx, pingCancel = context.WithCancel(connCtx)
-			wsConn.StartPingLoop(pingCtx, s.PingInterval, s.PongWait)
-		}
-	}
+	_ = wsConn.SetPingSettings(handler.getSettings().pingSettings())
+	return dereg
 }

@@ -21,6 +21,7 @@ address = ":7071"  # Default: ":7071"
 # ping_interval = "30s"  # Default: "30s". Interval between websocket pings used to enforce the read timeout
 # pong_wait = "30s"      # Default: "30s". Extra grace beyond ping_interval to receive a pong before the read times out (effective read timeout = ping_interval + pong_wait)
 # registration_timeout = "1m"  # Default: "1m". Max time allowed for the controller registration handshake before falling back to the normal ping read timeout
+# data_timeout = "2m"    # Default: "2m". The controller connection is considered dead when no data message is received within this period, independent of ping/pong keep-alive activity. Set to "0s" to disable. Controller connections only.
 
 # HTTP listener configuration (optional)
 # Provides REST API endpoints as well as the web UI

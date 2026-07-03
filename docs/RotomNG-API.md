@@ -74,7 +74,8 @@ Returns the current system configuration including version, tuning parameters, a
     "controller_listener": {
       "ping_interval": "30s",
       "pong_wait": "30s",
-      "registration_timeout": "1m0s"
+      "registration_timeout": "1m0s",
+      "data_timeout": "2m0s"
     }
   }
 }
@@ -84,8 +85,9 @@ Returns the current system configuration including version, tuning parameters, a
 - `sha`: Git commit SHA of the running build
 - `instance`: Only present if configured
 - `rate_limit`: Always present
-- `device_listener` / `controller_listener`: websocket keep-alive settings. `ping_interval` and `pong_wait` are durations; the read timeout fires if no pong is received within `ping_interval + pong_wait`. The `device_listener` settings also govern MITM worker connections, which connect on the device listener.
+- `device_listener` / `controller_listener`: websocket keep-alive settings. `ping_interval` and `pong_wait` are durations; the read timeout fires if no pong or data message is received within `ping_interval + pong_wait`. The `device_listener` settings also govern MITM worker connections, which connect on the device listener.
 - `registration_timeout`: max time allowed for a controller to complete registration before the normal ping-based read timeout applies.
+- `data_timeout`: controller connections only. The connection is considered dead if no data message is received within this period, independent of ping/pong keep-alive activity. Defaults to `"2m"`; set to `"0s"` to disable.
 
 #### Reload Configuration
 ```http

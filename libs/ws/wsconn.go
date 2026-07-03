@@ -14,6 +14,26 @@ import (
 	"github.com/UnownHash/RotomNG/libs/bufferpool"
 )
 
+// PingSettings groups the ping keep-alive settings applied to a Conn. They are
+// stored together behind a single atomic pointer so they always change as a set.
+//
+//   - Interval: how often to send a ping control frame. Zero disables ping
+//     sending entirely.
+//   - Timeout: how long the connection may go without receiving either a pong or
+//     a data message before it is considered dead. Zero disables the ping
+//     timeout. When it fires, Reader returns errReadTimeout.
+//
+// Negative values are invalid.
+type PingSettings struct {
+	Interval time.Duration
+	Timeout  time.Duration
+}
+
+// IsValid reports whether the settings are usable (no negative durations).
+func (p PingSettings) IsValid() bool {
+	return p.Interval >= 0 && p.Timeout >= 0
+}
+
 // writerMessage contains both the message type and reader for background writing.
 type writerMessage struct {
 	reader   Reader
@@ -56,16 +76,23 @@ type Conn struct {
 	closed     atomic.Bool
 	cancelFn   context.CancelFunc
 
-	// readDeadlineExt is the duration (in nanoseconds) by which the read
-	// deadline is extended each time a pong is received. It is updated by
-	// StartPingLoop so settings reloads take effect without re-installing the
-	// pong handler (which would race with the reader).
-	readDeadlineExt atomic.Int64
+	// pingSettings holds the current ping keep-alive settings. It is never nil
+	// after NewConn. The always-running timeout goroutine reads it each cycle so
+	// SetPingSettings takes effect without any goroutine start/stop.
+	pingSettings atomic.Pointer[PingSettings]
 
-	// bgMu serializes starting background goroutines (via wg.Go) against the
-	// wg.Wait performed in Close, so the WaitGroup is never given a concurrent
-	// Add and Wait (which the race detector flags and the docs forbid).
-	bgMu sync.Mutex
+	// readDataTimeout (nanoseconds) is the maximum time the connection may go
+	// without receiving a data message before it is considered dead. Zero
+	// disables the data timeout. When it fires, Reader returns errReadDataTimeout.
+	readDataTimeout atomic.Int64
+
+	// readErr, when set, is the error Reader returns once the timeout goroutine
+	// has declared the connection dead (see errReadTimeout / errReadDataTimeout).
+	readErr atomic.Pointer[error]
+
+	// wakeCh nudges the timeout goroutine to recompute its schedule after a
+	// settings or read-deadline change. Buffered so signalling never blocks.
+	wakeCh chan struct{}
 
 	statsMu sync.Mutex
 	stats   ConnStats
@@ -92,6 +119,27 @@ func WithConnectedAtOpt(t time.Time) ConnOption {
 	}
 }
 
+// WithPingSettings returns a ConnOption that sets the initial ping keep-alive
+// settings. Invalid (negative) settings are ignored, leaving pinging disabled;
+// callers that need to detect invalid input should use SetPingSettings.
+func WithPingSettings(s PingSettings) ConnOption {
+	return func(w *Conn) {
+		if s.IsValid() {
+			w.pingSettings.Store(&s)
+		}
+	}
+}
+
+// WithReadDataTimeout returns a ConnOption that sets the initial data read
+// timeout. A negative timeout is ignored, leaving the data timeout disabled.
+func WithReadDataTimeout(d time.Duration) ConnOption {
+	return func(w *Conn) {
+		if d >= 0 {
+			w.readDataTimeout.Store(int64(d))
+		}
+	}
+}
+
 // NewConn creates a new Conn wrapper around a *websocket.Conn.
 func NewConn(conn *websocket.Conn, opts ...ConnOption) *Conn {
 	ctx, cancelFn := context.WithCancel(context.Background())
@@ -99,7 +147,10 @@ func NewConn(conn *websocket.Conn, opts ...ConnOption) *Conn {
 		ctx:      ctx,
 		cancelFn: cancelFn,
 		conn:     conn,
+		wakeCh:   make(chan struct{}, 1),
 	}
+	// Default to no pinging and no timeouts until configured.
+	w.pingSettings.Store(&PingSettings{})
 	for _, opt := range opts {
 		opt(w)
 	}
@@ -110,11 +161,26 @@ func NewConn(conn *websocket.Conn, opts ...ConnOption) *Conn {
 		w.stats.ConnectedAt = time.Now()
 	}
 
+	// Install the pong handler once, before any reads. It runs on the read
+	// goroutine inside NextReader; it only records the pong into stats (no
+	// read-deadline mutation), so it is safe alongside the reader. The timeout
+	// goroutine reads stats.LastPongAt to enforce the ping timeout.
+	w.conn.SetPongHandler(func(string) error {
+		now := time.Now()
+		w.statsMu.Lock()
+		w.stats.setPongReceived(now)
+		w.statsMu.Unlock()
+		return nil
+	})
+
 	w.writerCh = make(chan writerMessage, 10)
 	w.wg.Go(func() {
 		defer w.closeNormal()
 		w.backgroundWriter()
 	})
+	// The timeout goroutine always runs; it sends pings and enforces the ping and
+	// data timeouts based on the current (atomically updated) settings.
+	w.wg.Go(w.timeoutLoop)
 
 	return w
 }
@@ -160,10 +226,19 @@ func (w *Conn) Reader(_ context.Context) (Reader, error) {
 	if w.closed.Load() {
 		return nil, errWebsocketClosed
 	}
+	if err := w.loadReadErr(); err != nil {
+		return nil, err
+	}
 	buf := w.bufferPool.Get()
 	msgType, reader, err := w.conn.NextReader()
 	if err != nil {
 		w.bufferPool.Put(buf)
+		// If the timeout goroutine woke the reader by expiring the deadline, it
+		// stored the specific timeout error first; prefer it over the raw
+		// deadline-exceeded error.
+		if readErr := w.loadReadErr(); readErr != nil {
+			return nil, readErr
+		}
 		return nil, err
 	}
 	_, err = buf.ReadFrom(reader)
@@ -173,6 +248,8 @@ func (w *Conn) Reader(_ context.Context) (Reader, error) {
 	}
 	w.statsMu.Lock()
 	defer w.statsMu.Unlock()
+	// The timeout goroutine reads stats.LastReceivedAt to enforce the ping and
+	// data timeouts.
 	w.stats.setMessageReceived(time.Now(), int64(buf.Len()))
 	return getReader(w.bufferPool, buf, msgType), nil
 }
@@ -208,21 +285,44 @@ func (w *Conn) Flush(ctx context.Context) error {
 // Close closes the WebSocket connection with the given status code and reason.
 func (w *Conn) Close(code StatusCode, reason string) error {
 	err := w.close(code, reason)
-	// Serialize against StartPingLoop: w.close has set closed=true, so any
-	// in-flight StartPingLoop either already finished its wg.Go (ordered before
-	// this Wait) or, once it acquires bgMu, observes closed and skips it. Holding
-	// bgMu across Wait prevents a concurrent wg.Add/Wait on the WaitGroup. The
-	// background goroutines do not take bgMu, so this cannot deadlock.
-	w.bgMu.Lock()
-	defer w.bgMu.Unlock()
+	// All background goroutines (the writer and the timeout loop) are started
+	// synchronously in NewConn, before any caller can invoke Close, so there is
+	// never a concurrent wg.Add racing this Wait. w.close cancelled the context,
+	// which both goroutines observe and exit on.
 	w.wg.Wait()
 	return err
 }
 
 // SetReadDeadline sets the read deadline on the underlying connection.
-// Setting a deadline in the past unblocks a pending Reader() call.
+// Setting a deadline in the past unblocks a pending Reader() call. It also wakes
+// the timeout goroutine so it recomputes its schedule.
 func (w *Conn) SetReadDeadline(t time.Time) error {
-	return w.conn.SetReadDeadline(t)
+	err := w.conn.SetReadDeadline(t)
+	w.signalTimeout()
+	return err
+}
+
+// SetPingSettings replaces the ping keep-alive settings and wakes the timeout
+// goroutine to apply them. Negative durations are rejected.
+func (w *Conn) SetPingSettings(s PingSettings) error {
+	if !s.IsValid() {
+		return errInvalidPingSettings
+	}
+	w.pingSettings.Store(&s)
+	w.signalTimeout()
+	return nil
+}
+
+// SetReadDataTimeout replaces the data read timeout and wakes the timeout
+// goroutine to apply it. Zero disables the data timeout; a negative value is
+// rejected.
+func (w *Conn) SetReadDataTimeout(d time.Duration) error {
+	if d < 0 {
+		return errInvalidReadDataTimeout
+	}
+	w.readDataTimeout.Store(int64(d))
+	w.signalTimeout()
+	return nil
 }
 
 // Ping sends a ping control frame. It is safe to call concurrently with writes.
@@ -235,69 +335,6 @@ func (w *Conn) Ping(ctx context.Context) error {
 		deadline = d
 	}
 	return w.conn.WriteControl(websocket.PingMessage, nil, deadline)
-}
-
-// EnableReadTimeout sets the initial read deadline and installs a pong handler
-// that extends the read deadline by interval+pongWait each time a pong is
-// received; if no pong arrives the deadline expires naturally and the next
-// Reader call will return an error. It mutates read-side connection state and
-// therefore must be called on the goroutine that reads from the connection,
-// before any reads begin, and never concurrently with a read. Subsequent
-// changes to the extension (e.g. on a settings reload) are picked up
-// automatically by StartPingLoop without re-installing the handler.
-func (w *Conn) EnableReadTimeout(interval, pongWait time.Duration) {
-	w.readDeadlineExt.Store(int64(interval + pongWait))
-	_ = w.conn.SetReadDeadline(time.Now().Add(interval + pongWait))
-	w.conn.SetPongHandler(func(string) error {
-		now := time.Now()
-		ext := time.Duration(w.readDeadlineExt.Load())
-		// The pong handler runs on the read goroutine inside NextReader, which
-		// does not hold statsMu, so locking here is safe and keeps GetStats
-		// consistent. Record the pong so it counts toward LastSeenAt without
-		// inflating the data-message counters.
-		w.statsMu.Lock()
-		w.stats.setPongReceived(now)
-		w.statsMu.Unlock()
-		return w.conn.SetReadDeadline(now.Add(ext))
-	})
-}
-
-// StartPingLoop begins a background goroutine that sends a WebSocket ping every
-// interval. The read deadline is extended by interval+pongWait on each pong
-// received via the handler installed by EnableReadTimeout, which must be called
-// first. On ping write failure the connection is closed. The loop stops when ctx
-// is done or the connection is closed. StartPingLoop only sends pings (a
-// concurrency-safe control write) and updates the pong extension, so it is safe
-// to call concurrently with a reader and may be called repeatedly to apply new
-// interval/pongWait values.
-func (w *Conn) StartPingLoop(ctx context.Context, interval, pongWait time.Duration) {
-	w.readDeadlineExt.Store(int64(interval + pongWait))
-
-	// Guard against racing the wg.Wait in Close: if the connection is already
-	// closing, don't start the goroutine (it would have nothing live to ping).
-	w.bgMu.Lock()
-	defer w.bgMu.Unlock()
-	if w.closed.Load() {
-		return
-	}
-
-	w.wg.Go(func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-w.ctx.Done():
-				return
-			case <-ticker.C:
-				if err := w.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(pongWait)); err != nil {
-					w.close(StatusAbnormalClosure, "ping failed")
-					return
-				}
-			}
-		}
-	})
 }
 
 // Subprotocol returns the negotiated subprotocol.
@@ -336,6 +373,139 @@ func (w *Conn) GetStats() ConnStats {
 	defer w.statsMu.Unlock()
 
 	return w.stats
+}
+
+// loadReadErr returns the stored terminal read error, if any.
+func (w *Conn) loadReadErr() error {
+	if errp := w.readErr.Load(); errp != nil {
+		return *errp
+	}
+	return nil
+}
+
+// signalTimeout nudges the timeout goroutine without blocking.
+func (w *Conn) signalTimeout() {
+	select {
+	case w.wakeCh <- struct{}{}:
+	default:
+	}
+}
+
+// timeoutLoop is the always-running goroutine started by NewConn. It sends
+// pings on the configured interval and enforces the ping and data timeouts.
+// When a timeout elapses it stores the corresponding error and expires the read
+// deadline so a blocked Reader wakes up and returns that error.
+func (w *Conn) timeoutLoop() {
+	// idleWake bounds how long we sleep when nothing is scheduled; a wakeCh
+	// signal or ctx cancellation still wakes us sooner.
+	const idleWake = time.Hour
+
+	timer := time.NewTimer(idleWake)
+	defer timer.Stop()
+
+	// lastPing tracks when we last sent a ping (loop-local; pings are only sent
+	// from here).
+	lastPing := time.Now()
+
+	for {
+		ps := *w.pingSettings.Load()
+		dataTimeout := time.Duration(w.readDataTimeout.Load())
+		now := time.Now()
+
+		// Send a ping if one is due.
+		nextPing := time.Duration(-1)
+		if ps.Interval > 0 {
+			if elapsed := now.Sub(lastPing); elapsed >= ps.Interval {
+				if err := w.conn.WriteControl(websocket.PingMessage, nil, now.Add(time.Second)); err != nil {
+					// The write failed, so the connection is broken. Wake any
+					// blocked reader; it will surface the underlying error.
+					_ = w.conn.SetReadDeadline(now)
+					return
+				}
+				lastPing = now
+				nextPing = ps.Interval
+			} else {
+				nextPing = ps.Interval - elapsed
+			}
+		}
+
+		// Snapshot the activity timestamps recorded by Reader and the pong
+		// handler, after any ping write so activity that arrives meanwhile is
+		// picked up. ConnectedAt is the floor so a connection that has not yet
+		// received anything is measured from its start rather than the zero time.
+		w.statsMu.Lock()
+		lastData := laterTime(w.stats.ConnectedAt, w.stats.LastReceivedAt)
+		lastPongOrData := laterTime(lastData, w.stats.LastPongAt)
+		w.statsMu.Unlock()
+
+		// Enforce the ping timeout (reset by a pong OR a data message).
+		wakePing, dead := w.checkTimeout(ps.Timeout, lastPongOrData, now, errReadTimeout)
+		if dead {
+			return
+		}
+
+		// Enforce the data timeout (reset only by a data message).
+		wakeData, dead := w.checkTimeout(dataTimeout, lastData, now, errReadDataTimeout)
+		if dead {
+			return
+		}
+
+		wake := minPositiveDuration(minPositiveDuration(nextPing, wakePing), wakeData)
+		if wake <= 0 {
+			wake = idleWake
+		}
+		// Go 1.23+: Reset on a running or expired timer is safe and cannot yield a
+		// stale value, so no Stop/drain is needed here.
+		timer.Reset(wake)
+
+		select {
+		case <-w.ctx.Done():
+			return
+		case <-w.wakeCh:
+		case <-timer.C:
+		}
+	}
+}
+
+// checkTimeout evaluates a single timeout. If timeout <= 0 it is disabled and
+// returns (-1, false). If the deadline (lastActivity+timeout) has passed it
+// stores deadErr, expires the read deadline, and returns (_, true). Otherwise it
+// returns the remaining duration until the deadline and false.
+func (w *Conn) checkTimeout(timeout time.Duration, lastActivity, now time.Time, deadErr error) (time.Duration, bool) {
+	if timeout <= 0 {
+		return -1, false
+	}
+	deadline := lastActivity.Add(timeout)
+	if !now.Before(deadline) {
+		err := deadErr
+		w.readErr.CompareAndSwap(nil, &err)
+		_ = w.conn.SetReadDeadline(now)
+		return -1, true
+	}
+	return deadline.Sub(now), false
+}
+
+// laterTime returns the later of two times.
+func laterTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+
+// minPositiveDuration returns the smaller of two durations, ignoring any that
+// are <= 0 (treated as "not scheduled"). Returns -1 if neither is positive.
+func minPositiveDuration(a, b time.Duration) time.Duration {
+	switch {
+	case a <= 0:
+		return b
+	case b <= 0:
+		return a
+	case a < b:
+		return a
+	default:
+		return b
+	}
 }
 
 func (w *Conn) close(code StatusCode, reason string) error {
