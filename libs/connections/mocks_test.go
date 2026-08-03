@@ -119,10 +119,14 @@ func (w *mockWorker) GetModeInfo() mitm.WorkerModeInfo {
 	defer w.mu.Unlock()
 	return w.modeInfo
 }
-func (w *mockWorker) WebsocketStats() (total, session ws.ConnStats) {
+func (w *mockWorker) WebsocketStats() (session, total ws.ConnStats) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.wsStats, ws.ConnStats{}
+	// Mirror mitm.Worker: session is the live connection's stats, total is
+	// previous sessions plus the live session.
+	total = w.prevStats
+	total.Add(w.wsStats)
+	return w.wsStats, total
 }
 func (w *mockWorker) SetCloseHandler(fn func()) {
 	w.mu.Lock()

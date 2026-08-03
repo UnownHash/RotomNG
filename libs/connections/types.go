@@ -30,7 +30,7 @@ type MITMWorker interface {
 	DeviceID() string
 	Origin() string
 	GetModeInfo() mitm.WorkerModeInfo
-	WebsocketStats() (total, session ws.ConnStats)
+	WebsocketStats() (session, total ws.ConnStats)
 	SetCloseHandler(fn func())
 	SetPreviousWSConnStats(stats ws.ConnStats)
 	ProxyController(ctx context.Context, controller mitm.Controller, disableStats bool, initialRequest *protos.MitmRequest)

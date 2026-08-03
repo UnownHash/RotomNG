@@ -244,6 +244,12 @@ func (w *Conn) Reader(_ context.Context) (Reader, error) {
 	_, err = buf.ReadFrom(reader)
 	if err != nil {
 		w.bufferPool.Put(buf)
+		// Same as the NextReader path: the timeout goroutine may have expired
+		// the deadline mid-message-body; surface the classified timeout error
+		// rather than the raw deadline error.
+		if readErr := w.loadReadErr(); readErr != nil {
+			return nil, readErr
+		}
 		return nil, err
 	}
 	w.statsMu.Lock()
@@ -417,8 +423,11 @@ func (w *Conn) timeoutLoop() {
 		if ps.Interval > 0 {
 			if elapsed := now.Sub(lastPing); elapsed >= ps.Interval {
 				if err := w.conn.WriteControl(websocket.PingMessage, nil, now.Add(time.Second)); err != nil {
-					// The write failed, so the connection is broken. Wake any
-					// blocked reader; it will surface the underlying error.
+					// The write failed, so the connection is broken. Store a
+					// classified error and wake any blocked reader so it
+					// surfaces that instead of a raw deadline error.
+					pingErr := fmt.Errorf("%w: keep-alive ping write failed: %w", errReadTimeout, err)
+					w.readErr.CompareAndSwap(nil, &pingErr)
 					_ = w.conn.SetReadDeadline(now)
 					return
 				}

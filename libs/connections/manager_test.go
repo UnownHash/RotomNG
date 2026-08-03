@@ -414,6 +414,40 @@ func TestRegisterWorker_ReplacesExistingWorker(t *testing.T) {
 	oldWorker.mu.Unlock()
 }
 
+// TestRegisterWorker_ReplacementPreservesTotalStats guards against losing
+// accumulated websocket stats across repeated worker replacements: the manager
+// must carry forward the replaced worker's cumulative TOTAL (previous sessions
+// plus its live session), not just its live session.
+func TestRegisterWorker_ReplacementPreservesTotalStats(t *testing.T) {
+	mgr, _ := newTestManager()
+	addDeviceDirectly(mgr, "d1", "origin1")
+
+	worker1 := &mockWorker{id: "w1", deviceID: "d1", origin: "origin1",
+		wsStats: ws.ConnStats{MessagesReceived: 10, BytesReceived: 100}}
+	if err := mgr.RegisterWorker(context.Background(), worker1); err != nil {
+		t.Fatalf("RegisterWorker (1st) failed: %v", err)
+	}
+
+	worker2 := &mockWorker{id: "w1", deviceID: "d1", origin: "origin1",
+		wsStats: ws.ConnStats{MessagesReceived: 5, BytesReceived: 50}}
+	if err := mgr.RegisterWorker(context.Background(), worker2); err != nil {
+		t.Fatalf("RegisterWorker (2nd) failed: %v", err)
+	}
+
+	worker3 := &mockWorker{id: "w1", deviceID: "d1", origin: "origin1",
+		wsStats: ws.ConnStats{MessagesReceived: 1, BytesReceived: 1}}
+	if err := mgr.RegisterWorker(context.Background(), worker3); err != nil {
+		t.Fatalf("RegisterWorker (3rd) failed: %v", err)
+	}
+	mgr.Wait()
+
+	_, total := worker3.WebsocketStats()
+	if total.MessagesReceived != 16 || total.BytesReceived != 151 {
+		t.Errorf("total after two replacements = %d msgs / %d bytes, want 16 / 151 (all sessions summed)",
+			total.MessagesReceived, total.BytesReceived)
+	}
+}
+
 func TestRegisterWorker_DifferentOriginFromDevice(t *testing.T) {
 	mgr, _ := newTestManager()
 	addDeviceDirectly(mgr, "d1", "origin1")

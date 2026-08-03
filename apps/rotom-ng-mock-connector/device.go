@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/UnownHash/RotomNG/libs/ws"
 )
@@ -62,6 +63,13 @@ func (d *device) run(ctx context.Context) error {
 		return fmt.Errorf("send device init: %w", err)
 	}
 	d.logger.Info("device control connected")
+
+	// Reader does not observe ctx; expire the read deadline on cancellation so
+	// the loop below unblocks and the tool can shut down.
+	stop := context.AfterFunc(ctx, func() {
+		_ = conn.SetReadDeadline(time.Now())
+	})
+	defer stop()
 
 	for {
 		reader, err := conn.Reader(ctx)

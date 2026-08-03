@@ -548,7 +548,9 @@ func (mgr *ConnectionManager[C, W]) RegisterWorker(ctx context.Context, worker W
 	deviceWorkers[workerID] = worker
 
 	if !existingWorker.IsZero() {
-		wsStats, _ := existingWorker.WebsocketStats()
+		// Carry the replaced worker's cumulative total (previous sessions + its
+		// current session) forward, not just its current session.
+		_, wsStats := existingWorker.WebsocketStats()
 		worker.SetPreviousWSConnStats(wsStats)
 		if existingWorker.Origin() != workerOrigin {
 			logger.LogAttrs(ctx, slog.LevelInfo, "deregistered worker",

@@ -257,7 +257,9 @@ func (worker *Worker) ProxyController(ctx context.Context, controller Controller
 	}
 
 	if err := worker.wsConn.WriteAsync(ctx, ws.MessageBinary, payload); err != nil {
-		if !errors.Is(err, context.Canceled) {
+		// A write racing our own connection teardown is a normal disconnect
+		// (pre-rework it surfaced as context.Canceled), not an error.
+		if !errors.Is(err, context.Canceled) && !ws.IsErrWebsocketClosed(err) {
 			if logger != nil {
 				logger.LogAttrs(ctx, slog.LevelError, "failed writing login request to worker", slog.String("worker_id", worker.id), slog.String("error", err.Error()))
 			}
@@ -292,7 +294,8 @@ func (worker *Worker) ProxyController(ctx context.Context, controller Controller
 		err = worker.wsConn.WriteAsyncFromReader(ctx, reader)
 		if err != nil {
 			reader.Done()
-			if !errors.Is(err, context.Canceled) {
+			// See above: our own conn closing mid-write is a normal disconnect.
+			if !errors.Is(err, context.Canceled) && !ws.IsErrWebsocketClosed(err) {
 				if logger != nil {
 					logger.LogAttrs(ctx, slog.LevelError, "error writing to worker", slog.String("worker_id", worker.id), slog.String("error", err.Error()))
 				}
@@ -389,6 +392,7 @@ func (worker *Worker) processResponseAndUpdateStats(payload []byte) {
 
 	request, ok := worker.requestTracker.Get(mitmResponse.Id)
 	if !ok {
+		worker.statsCollector.IncrWorkerDroppedResponses()
 		return
 	}
 
