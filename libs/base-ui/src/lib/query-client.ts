@@ -13,8 +13,8 @@
  *    navigation, dropped soon enough not to leak.
  */
 
-import { POLL_INTERVAL_MS } from "./query-options";
 import { QueryClient } from "@tanstack/react-query";
+import { POLL_INTERVAL_MS } from "./query-options";
 
 export const createAppQueryClient = () =>
   new QueryClient({

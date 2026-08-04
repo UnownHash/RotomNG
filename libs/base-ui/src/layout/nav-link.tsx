@@ -1,5 +1,5 @@
 import type { FC, MouseEvent as ReactMouseEvent, ReactNode } from "react";
-import { useHref, useLinkClickHandler, useLocation } from "react-router-dom";
+import { useHref, useLinkClickHandler, useLocation } from "react-router";
 import { cn } from "@/lib/utils";
 
 interface NavLinkProps {

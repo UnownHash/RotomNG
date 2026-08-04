@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useCallback } from "react";
-import type { Device, Status } from "../types";
 import { statusQuery } from "../lib/query-options";
+import type { Device, Status } from "../types";
 import { DeviceGrids } from "./device-grids";
 import { MemoizedDevicesTable as DevicesTable } from "./devices-table";
 

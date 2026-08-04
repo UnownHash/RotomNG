@@ -1,23 +1,23 @@
 import "react-toastify/dist/ReactToastify.css";
 
-import { APP_VERSION } from "../version";
 import {
   ControllersPage,
+  createAppQueryClient,
   DevicePage,
   JobsPage,
   Layout,
   type NavItem,
   StatusPage,
   TooltipProvider,
-  WorkersPage,
-  createAppQueryClient,
   useConfig,
+  WorkersPage,
 } from "@rotom-ng/base-ui";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router";
 import { ToastContainer } from "react-toastify";
 import rotomNgIcon from "../assets/rotom-ng.png";
+import { APP_VERSION } from "../version";
 
 const queryClient = createAppQueryClient();
 
