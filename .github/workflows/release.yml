@@ -1,0 +1,280 @@
+name: release
+
+# Manual only. Nothing here runs on an ordinary branch push -- publish-rotom-ng.yml
+# handles those and only ever pushes a branch-tagged image. This workflow is what
+# publishes a version: a version-tagged multi-arch image plus a GitHub Release
+# carrying per-arch tarballs.
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: 'Mark as a prerelease'
+        type: boolean
+        default: true
+  # Pushing the matching tag releases too. The tag must be the one version.txt
+  # implies (rotom-ng-v<version>), or prepare fails before anything is built or
+  # published.
+  push:
+    tags:
+      - 'rotom-ng-v*'
+
+env:
+  REGISTRY: ghcr.io
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Read version
+        id: version
+        run: |
+          set -eu
+          ver=$(tr -d '[:space:]' < apps/rotom-ng/app/version/version.txt)
+          if [ -z "$ver" ]; then
+            echo "::error::apps/rotom-ng/app/version/version.txt is empty"
+            exit 1
+          fi
+          # The binary reports AppVersion from version.go, so refuse to publish a
+          # release labelled with a version the binary will not agree with.
+          govers=$(sed -n 's/.*AppVersion = "\(.*\)".*/\1/p' apps/rotom-ng/app/version/version.go)
+          if [ "$ver" != "$govers" ]; then
+            echo "::error::version.txt says '$ver' but version.go says '$govers'. Run 'go generate ./apps/rotom-ng/...' and commit the result."
+            exit 1
+          fi
+          tag="rotom-ng-v${ver}"
+
+          if [ '${{ github.event_name }}' = 'push' ]; then
+            # Tag push: the pushed tag has to be the one version.txt implies,
+            # otherwise the release would be labelled differently from the binary.
+            if [ '${{ github.ref_name }}' != "$tag" ]; then
+              echo "::error::pushed tag '${{ github.ref_name }}' does not match version.txt ('$ver'), which implies '$tag'. Bump version.txt (and regenerate version.go) or retag."
+              exit 1
+            fi
+            # No input to consult, so infer: a purely numeric version is a stable
+            # release, anything else (1.0.0alpha6) is a prerelease.
+            case "$ver" in
+              *[!0-9.]*) prerelease=true ;;
+              *)         prerelease=false ;;
+            esac
+          else
+            prerelease='${{ inputs.prerelease }}'
+          fi
+
+          echo "value=$ver" >> $GITHUB_OUTPUT
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+          echo "prerelease=$prerelease" >> $GITHUB_OUTPUT
+          {
+            echo "### Releasing RotomNG ${ver}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Tag | \`${tag}\` |"
+            echo "| Prerelease | \`${prerelease}\` |"
+            echo "| Triggered by | \`${{ github.event_name }}\` |"
+            echo "| Ref | \`${{ github.ref_name }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: [prepare]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: linux/amd64
+            pair: linux-amd64
+          - os: ubuntu-24.04-arm
+            arch: linux/arm64
+            pair: linux-arm64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: downcase GHCR_REPO
+        run: |
+          echo "GHCR_REPO=${{ env.REGISTRY }}/${GITHUB_REPOSITORY,,}/rotom-ng" >>${GITHUB_ENV}
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.GHCR_REPO }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/rotom-ng/Dockerfile
+          platforms: ${{ matrix.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Attestations can carry build-path metadata; keep the image to just the binary.
+          provenance: false
+          sbom: false
+          outputs: type=image,"name=${{ env.GHCR_REPO }}",push-by-digest=true,name-canonical=true,push=true
+      - name: Export digest
+        run: |
+          mkdir -p ${{ runner.temp }}/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.pair }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+      - name: Extract binary from the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/rotom-ng/Dockerfile
+          platforms: ${{ matrix.arch }}
+          provenance: false
+          sbom: false
+          outputs: type=local,dest=${{ runner.temp }}/image-out
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: rotom-ng-binary-${{ matrix.pair }}
+          path: ${{ runner.temp }}/image-out/rotom-ng/rotom-ng
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-image:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: downcase GHCR_REPO
+        run: |
+          echo "GHCR_REPO=${{ env.REGISTRY }}/${GITHUB_REPOSITORY,,}/rotom-ng" >>${GITHUB_ENV}
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.GHCR_REPO }}
+          tags: |
+            type=raw,value=v${{ needs.prepare.outputs.version }}
+            type=raw,value=${{ needs.prepare.outputs.version }}
+            type=raw,value=latest,enable=${{ needs.prepare.outputs.prerelease == 'false' }}
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+          $(printf '${{ env.GHCR_REPO }}@sha256:%s ' *)
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect "${GHCR_REPO}:v${{ needs.prepare.outputs.version }}"
+
+  release:
+    # merge-image too, so the image tag the notes advertise exists by then
+    needs: [prepare, build, merge-image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/binaries
+          pattern: rotom-ng-binary-*
+      - name: Build tarballs
+        run: |
+          set -eu
+          mkdir -p "${{ runner.temp }}/dist"
+          for pair in linux-amd64 linux-arm64; do
+            dir="${{ runner.temp }}/stage/rotom-ng-v${VERSION}"
+            rm -rf "${{ runner.temp }}/stage"
+            mkdir -p "$dir"
+            install -m 755 "${{ runner.temp }}/binaries/rotom-ng-binary-${pair}/rotom-ng" "$dir/rotom-ng"
+            # A fresh checkout contains tracked files only, so this cannot pick up
+            # local work-in-progress. logs/ is created empty rather than copied so
+            # its .KEEP placeholder does not ship.
+            cp -rp configs "$dir/configs"
+            cp -rp docs "$dir/docs"
+            cp -rp jobs "$dir/jobs"
+            mkdir -p "$dir/logs"
+            tar -czf "${{ runner.temp }}/dist/rotom-ng-v${VERSION}-${pair}.tar.gz" \
+              -C "${{ runner.temp }}/stage" "rotom-ng-v${VERSION}"
+          done
+          ls -l "${{ runner.temp }}/dist"
+      - name: Verify no source in the tarballs
+        run: |
+          set -eu
+          leaked=$(tar tzf "${{ runner.temp }}/dist/rotom-ng-v${VERSION}-linux-amd64.tar.gz" \
+            | grep -E '\.(go|mod|sum|ts|tsx)$' || true)
+          if [ -n "$leaked" ]; then
+            echo "::error::source files found in the release tarball:"
+            echo "$leaked"
+            exit 1
+          fi
+          echo "Tarball contents:"
+          tar tzf "${{ runner.temp }}/dist/rotom-ng-v${VERSION}-linux-amd64.tar.gz"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          tag='${{ needs.prepare.outputs.tag }}'
+          prerelease_flag=''
+          if [ '${{ needs.prepare.outputs.prerelease }}' = 'true' ]; then
+            prerelease_flag='--prerelease'
+          fi
+          image="${{ env.REGISTRY }}/${GITHUB_REPOSITORY,,}/rotom-ng:v${VERSION}"
+          # Built with printf so no leading indentation leaks in and turns the
+          # notes into a markdown code block.
+          notes=$(printf '%s\n' \
+            "RotomNG ${VERSION}" \
+            "" \
+            "Container image: \`${image}\`")
+
+          # --target takes the exact commit this ran on, so the release does not
+          # drift if the branch moves on afterwards.
+          gh release create "$tag" ${{ runner.temp }}/dist/*.tar.gz \
+            --target "${{ github.sha }}" \
+            $prerelease_flag \
+            --title "RotomNG ${VERSION}" \
+            --notes "$notes" \
+          || gh release upload "$tag" ${{ runner.temp }}/dist/*.tar.gz --clobber
+          echo "Published $tag"

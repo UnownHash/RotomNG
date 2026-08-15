@@ -1,0 +1,78 @@
+name: ci-checks
+
+# Reusable test + lint gate. Called by publish-rotom-ng.yml on every push and by
+# manual-publish-rotom-ng.yml before it pushes an image, so both entry points run
+# the same checks instead of keeping two copies of them in sync.
+on:
+  workflow_call:
+
+env:
+  GO_VERSION: '1.26.x'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Echo versions
+        run: |
+          bun --version && go version
+      - name: Install node dependencies
+        run: |
+          bun install --frozen-lockfile
+      - name: Build UI
+        run: |
+          bun run build
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install protoc-gen-go
+        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+      - name: Generate code
+        run: go generate ./apps/rotom-ng/...
+      - name: Verify version.go is up to date
+        run: |
+          if ! git diff --exit-code -- apps/rotom-ng/app/version/version.go; then
+            echo "::error::apps/rotom-ng/app/version/version.go is out of date. Run 'go generate ./apps/rotom-ng/...' and commit the regenerated file."
+            exit 1
+          fi
+      - name: Install dependencies
+        run: go get ./apps/rotom-ng/...
+      - name: Test with the Go CLI
+        run: go test -race -v ./...
+      - name: Run go vet static analysis
+        run: go vet ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install node dependencies
+        run: |
+          bun install --frozen-lockfile
+      - name: Build UI
+        run: |
+          bun run build
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install protoc-gen-go
+        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+      - name: Generate code
+        run: go generate ./apps/rotom-ng/...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: latest
