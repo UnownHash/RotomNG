@@ -1,81 +1,22 @@
 name: publish-rotom-ng
 
-on: [push]
+on:
+  push:
+    # Branches only. '**' matches nested names like comstud/fix-version, which a
+    # single '*' would not. Excluding tags keeps a tag push from running a
+    # two-arch docker build here that is discarded anyway -- release.yml handles
+    # tags and builds the images that actually ship.
+    branches: ['**']
 
 env:
   REGISTRY: ghcr.io
-  GO_VERSION: '1.26.x'
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-      - name: Echo versions
-        run: |
-          bun --version && go version
-      - name: Install node dependencies
-        run: |
-          bun install --frozen-lockfile
-      - name: Build UI
-        run: |
-          bun run build
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-      - name: Install protoc-gen-go
-        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-      - name: Generate code
-        run: go generate ./apps/rotom-ng/...
-      - name: Verify version.go is up to date
-        run: |
-          if ! git diff --exit-code -- apps/rotom-ng/app/version/version.go; then
-            echo "::error::apps/rotom-ng/app/version/version.go is out of date. Run 'go generate ./apps/rotom-ng/...' and commit the regenerated file."
-            exit 1
-          fi
-      - name: Install dependencies
-        run: go get ./apps/rotom-ng/...
-      - name: Test with the Go CLI
-        run: go test -race -v ./...
-      - name: Run go vet static analysis
-        run: go vet ./...
-
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-      - name: Install node dependencies
-        run: |
-          bun install --frozen-lockfile
-      - name: Build UI
-        run: |
-          bun run build
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-      - name: Install protoc-gen-go
-        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-      - name: Generate code
-        run: go generate ./apps/rotom-ng/...
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v7
-        with:
-          version: latest
+  checks:
+    uses: ./.github/workflows/ci-checks.yml
 
   build:
-    needs: [test, lint]
+    needs: [checks]
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -133,22 +74,6 @@ jobs:
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
-      - name: Extract binary from build
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: apps/rotom-ng/Dockerfile
-          platforms: ${{ matrix.arch }}
-          outputs: type=local,dest=${{ runner.temp }}/image-out
-      - name: Upload binary
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing'
-        uses: actions/upload-artifact@v4
-        with:
-          name: rotom-ng-binary-${{ env.PLATFORM_PAIR }}
-          path: ${{ runner.temp }}/image-out/rotom-ng/rotom-ng
-          if-no-files-found: error
-          retention-days: 1
 
   merge-docker-builds:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing'
@@ -177,21 +102,8 @@ jobs:
       - name: downcase GHCR_REPO
         run: |
           echo "GHCR_REPO=${{ env.REGISTRY }}/${GITHUB_REPOSITORY,,}/rotom-ng" >>${GITHUB_ENV}
-      - name: Read version
-        id: version
-        run: |
-          ver=$(cat apps/rotom-ng/app/version/version.txt | tr -d '[:space:]')
-          if [ "${{ github.ref }}" = "refs/heads/main" ] && [[ "$ver" =~ ^[0-9.]+$ ]]; then
-            echo "should_release=true" >> $GITHUB_OUTPUT
-          elif [ "${{ github.ref }}" = "refs/heads/testing" ] && [[ ! "$ver" =~ ^[0-9.]+$ ]]; then
-            echo "should_release=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_release=false" >> $GITHUB_OUTPUT
-          fi
-          if [ "${{ github.ref }}" = "refs/heads/testing" ]; then
-            ver="${ver}-testing"
-          fi
-          echo "value=v${ver}" >> $GITHUB_OUTPUT
+      # Branch tag only. Version tags (and releases) are published by release.yml,
+      # which is manual.
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
@@ -199,7 +111,6 @@ jobs:
           images: ${{ env.GHCR_REPO }}
           tags: |
             type=ref,event=branch
-            type=raw,value=${{ steps.version.outputs.value }},enable=${{ steps.version.outputs.should_release == 'true' }}
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
         run: |
@@ -209,69 +120,3 @@ jobs:
       - name: Inspect image
         run: |
           docker buildx imagetools inspect ${{ env.GHCR_REPO }}:${{ steps.meta.outputs.version }}
-
-  release:
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing'
-    needs: [build]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    strategy:
-      matrix:
-        include:
-          - arch: linux-amd64
-          - arch: linux-arm64
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-      - name: Read version
-        id: version
-        run: |
-          ver=$(cat apps/rotom-ng/app/version/version.txt | tr -d '[:space:]')
-          if [ "${{ github.ref }}" = "refs/heads/main" ] && [[ "$ver" =~ ^[0-9.]+$ ]]; then
-            echo "should_release=true" >> $GITHUB_OUTPUT
-          elif [ "${{ github.ref }}" = "refs/heads/testing" ] && [[ ! "$ver" =~ ^[0-9.]+$ ]]; then
-            echo "should_release=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_release=false" >> $GITHUB_OUTPUT
-          fi
-          if [ "${{ github.ref }}" = "refs/heads/testing" ]; then
-            ver="${ver}-testing"
-          fi
-          echo "value=v${ver}" >> $GITHUB_OUTPUT
-      - name: Download binary
-        if: steps.version.outputs.should_release == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: rotom-ng-binary-${{ matrix.arch }}
-          path: ${{ runner.temp }}/binary
-      - name: Create tar.gz
-        if: steps.version.outputs.should_release == 'true'
-        run: |
-          dir_name="rotom-ng-${{ steps.version.outputs.value }}"
-          mkdir -p "${{ runner.temp }}/${dir_name}"
-          cp -p ${{ runner.temp }}/binary/rotom-ng "${{ runner.temp }}/${dir_name}/"
-          chmod 755 "${{ runner.temp }}/${dir_name}/rotom-ng"
-          cp -rp docs/ "${{ runner.temp }}/${dir_name}/docs/"
-          cp -rp configs/ "${{ runner.temp }}/${dir_name}/configs/"
-          cp -rp jobs/ "${{ runner.temp }}/${dir_name}/jobs/"
-          cp -rp logs/ "${{ runner.temp }}/${dir_name}/logs/"
-          tar -czf "${{ runner.temp }}/rotom-ng-${{ steps.version.outputs.value }}-${{ matrix.arch }}.tar.gz" \
-            -C "${{ runner.temp }}" "${dir_name}"
-      - name: Upload release asset
-        if: steps.version.outputs.should_release == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          tag="rotom-ng-${{ steps.version.outputs.value }}"
-          file="${{ runner.temp }}/rotom-ng-${{ steps.version.outputs.value }}-${{ matrix.arch }}.tar.gz"
-          prerelease_flag=""
-          if [ "${{ github.ref }}" = "refs/heads/testing" ]; then
-            prerelease_flag="--prerelease"
-          fi
-          # Create release if it doesn't exist
-          gh release create "$tag" --target "${{ github.ref_name }}" \
-            $prerelease_flag \
-            --title "$tag" --notes "RotomNG ${{ steps.version.outputs.value }}" 2>/dev/null || true
-          # Upload asset (overwrite if exists)
-          gh release upload "$tag" "$file" --clobber
