@@ -12,11 +12,12 @@ message MitmRequest {
     message LoginRequest {
         enum LoginSource {
             UNSET = 0;
-            PTC = 1;
+            PTC = 1 [deprecated = true];
             PTC_OAUTH = 2;
             FB = 3;
             GOOGLE = 4;
-            N_KIDS = 5;
+            SUPER_AWESOME = 5 [deprecated = true];
+            NIANTIC_JWT = 6;
         }
 
         string username = 1;

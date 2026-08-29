@@ -105,6 +105,7 @@ func (c *controller) sendLogin(ctx context.Context, conn *ws.Conn, workerID stri
 		Payload: &protos.MitmRequest_LoginRequest_{
 			LoginRequest: &protos.MitmRequest_LoginRequest{
 				Username: c.id + "@mock",
+				//nolint:staticcheck
 				Source:   protos.MitmRequest_LoginRequest_PTC,
 				WorkerId: workerID,
 			},

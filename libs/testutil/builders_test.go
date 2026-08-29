@@ -66,6 +66,7 @@ func TestBuildLoginRequestDefaults(t *testing.T) {
 	if lr.Username != "test-user" {
 		t.Fatalf("expected Username 'test-user', got %q", lr.Username)
 	}
+	//nolint:staticcheck
 	if lr.Source != protos.MitmRequest_LoginRequest_PTC {
 		t.Fatalf("expected Source PTC, got %v", lr.Source)
 	}

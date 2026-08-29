@@ -23,6 +23,7 @@ linters:
     # Too opinionated / noisy for a real codebase
     - varnamelen        # short var names are idiomatic Go
     - exhaustruct       # requiring all struct fields is impractical
+    - exhaustruct_v5    # same, under the name golangci-lint 2.13 gave it
     - lll               # line length enforcement is too rigid
     - mnd               # magic number detection is overly aggressive
     - wsl_v5            # whitespace style is too opinionated

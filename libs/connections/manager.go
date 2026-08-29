@@ -290,12 +290,12 @@ func (mgr *ConnectionManager[C, W]) registerController(controller C) {
 	})
 }
 
-func (mgr *ConnectionManager[C, W]) pruneSelectorWorkerIDs() {
+func (mgr *ConnectionManager[C, W]) pruneSelectorWorkerIDs(ctx context.Context) {
 	// ensure periodic task runner doesn't die
 	defer func() {
 		r := recover()
 		if r != nil {
-			mgr.logger.LogAttrs(context.Background(), slog.LevelError, "PruneWorkerIDsSeen panicked", slog.Any("panic", r))
+			mgr.logger.LogAttrs(ctx, slog.LevelError, "PruneWorkerIDsSeen panicked", slog.Any("panic", r))
 			return
 		}
 	}()
@@ -871,7 +871,7 @@ func (mgr *ConnectionManager[C, W]) RunPeriodicTasks(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			mgr.pruneSelectorWorkerIDs()
+			mgr.pruneSelectorWorkerIDs(ctx)
 		}
 	}
 }
