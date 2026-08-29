@@ -75,9 +75,13 @@ func LoggerMiddleware(logger *slog.Logger) gin.HandlerFunc {
 
 // NewEngineWithLogger creates a new Gin engine with custom logger middleware
 // instead of using gin.Default() which includes the default logger.
+//
+// Gzip sits inside the logger so the size the logger reports is the size that
+// actually went over the wire, not the size before compression.
 func NewEngineWithLogger(logger *slog.Logger) *gin.Engine {
 	r := gin.New()
 	r.Use(RecoveryMiddleware(logger))
 	r.Use(LoggerMiddleware(logger))
+	r.Use(GzipMiddleware())
 	return r
 }
