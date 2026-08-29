@@ -80,6 +80,7 @@ export {
 } from "./lib/query-options";
 export { cn } from "./lib/utils";
 export * from "./search";
+export { CrossLink } from "./search/cross-link";
 export {
   buildSearchIndex,
   describeSearchableFields,
@@ -87,6 +88,11 @@ export {
   normalizeSearchTerm,
   type SearchableField,
 } from "./search/searchable";
+export {
+  SEARCH_PARAM,
+  searchLink,
+  useSearchParamState,
+} from "./search/use-search-param";
 export * from "./sorting";
 export { StatusGrids } from "./status/status-grids";
 export { StatusPage } from "./status/status-page";

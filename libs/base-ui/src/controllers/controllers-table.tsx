@@ -30,6 +30,7 @@ import {
 } from "../lib/aesthetic";
 import { Search } from "../search";
 import { matchesSearch, normalizeSearchTerm } from "../search/searchable";
+import { useSearchParamState } from "../search/use-search-param";
 import {
   createControllerSorter,
   getNextSortState,
@@ -337,7 +338,7 @@ const ControllersTableComponent: React.FC<ControllersTableComponentProps> = ({
 };
 
 const ControllersTable = ({ controllers }: { controllers: Controller[] }) => {
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useSearchParamState();
 
   const executeAction = useCallback(
     async ({

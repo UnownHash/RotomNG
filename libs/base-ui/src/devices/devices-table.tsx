@@ -34,7 +34,9 @@ import {
 import { apiFetch } from "../lib/api";
 import { cn } from "../lib/utils";
 import { Search } from "../search";
+import { CrossLink } from "../search/cross-link";
 import { matchesSearch, normalizeSearchTerm } from "../search/searchable";
+import { useSearchParamState } from "../search/use-search-param";
 import {
   createDeviceSorter,
   getNextSortState,
@@ -314,7 +316,17 @@ const DevicesTableComponent: React.FC<DevicesTableComponentProps> = ({
                             </Button>
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-left">
-                            {device.origin}
+                            {device.id ? (
+                              <CrossLink
+                                to="/workers"
+                                term={device.id}
+                                label={`Show workers on ${device.origin || device.id}`}
+                              >
+                                {device.origin}
+                              </CrossLink>
+                            ) : (
+                              device.origin
+                            )}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-center">
                             <div className="flex justify-center">
@@ -435,7 +447,7 @@ const DevicesTable = ({
   onDeviceUpdate?: (updatedDevice: Device) => void;
   onRemoveDead?: () => void;
 }) => {
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useSearchParamState();
   const executeAction = useCallback(
     async ({
       deviceId,

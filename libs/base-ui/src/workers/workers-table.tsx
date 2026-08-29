@@ -36,7 +36,9 @@ import {
 } from "../lib/aesthetic";
 import { cn } from "../lib/utils";
 import { Search } from "../search";
+import { CrossLink } from "../search/cross-link";
 import { buildSearchIndex, normalizeSearchTerm } from "../search/searchable";
+import { useSearchParamState } from "../search/use-search-param";
 import {
   compareWorkerItems,
   getNextSortState,
@@ -244,12 +246,12 @@ const WorkersTableComponent: React.FC<{
                     </TableHead>
                     <TableHead className="text-left">
                       <SortHeader
-                        field="session.controller.id"
+                        field="device_id"
                         sortBy={sortBy}
                         sortOrder={sortOrder}
                         onSort={handleSort}
                       >
-                        Controller ID
+                        Device
                       </SortHeader>
                     </TableHead>
                     <TableHead className="text-left">
@@ -354,7 +356,15 @@ const WorkersTableComponent: React.FC<{
                             {worker.weight || "N/A"}
                           </TableCell>
                           <TableCell className="text-left">
-                            {worker.session?.controller?.id || ""}
+                            {worker.device_id ? (
+                              <CrossLink
+                                to="/devices"
+                                term={worker.device_id}
+                                label={`Show device ${worker.device_id}`}
+                              />
+                            ) : (
+                              ""
+                            )}
                           </TableCell>
                           <TableCell className="text-left">
                             {worker.version_code}
@@ -412,7 +422,7 @@ const WorkersTableComponent: React.FC<{
 };
 
 const WorkersTable = ({ devices }: WorkersTableProps) => {
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useSearchParamState();
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
