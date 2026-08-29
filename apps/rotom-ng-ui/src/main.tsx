@@ -1,4 +1,4 @@
-import "@rotom-ng/base-ui/styles/globals.css";
+import "./styles.css";
 
 import { StrictMode } from "react";
 import * as ReactDOM from "react-dom/client";
@@ -9,7 +9,7 @@ import { App } from "./app/app";
 async function enableMocks() {
   if (!import.meta.env.DEV) return;
   if (import.meta.env.VITE_MOCK !== "true") return;
-  const { worker } = await import("@rotom-ng/base-ui/mocks");
+  const { worker } = await import("@unownhash/rotom-base-ui/mocks");
   await worker.start({ onUnhandledRequest: "bypass" });
 }
 
