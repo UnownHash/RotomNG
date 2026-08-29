@@ -8,12 +8,15 @@
  *  - refetchOnWindowFocus: false — polling already covers freshness; the
  *    refocus-triggered refetch only burned bandwidth on tab switches.
  *  - retry: 1 — the next poll IS the retry. Three retries with exponential
- *    backoff just delays the user seeing the error UI.
+ *    backoff just delays the user seeing the error UI. A 401 is never
+ *    retried: the credential will not materialise on its own, and retrying
+ *    only delays `AuthGate` showing the login form.
  *  - gcTime: 5 min — keeps recently-unmounted page data warm during
  *    navigation, dropped soon enough not to leak.
  */
 
 import { QueryClient } from "@tanstack/react-query";
+import { isAuthError } from "./api";
 import { POLL_INTERVAL_MS } from "./query-options";
 
 export const createAppQueryClient = () =>
@@ -23,7 +26,7 @@ export const createAppQueryClient = () =>
         staleTime: POLL_INTERVAL_MS - 1000,
         gcTime: 5 * 60_000,
         refetchOnWindowFocus: false,
-        retry: 1,
+        retry: (failureCount, error) => !isAuthError(error) && failureCount < 1,
       },
     },
   });

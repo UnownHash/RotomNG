@@ -63,6 +63,15 @@ func NewWebServer(ctx context.Context, logger *slog.Logger, config WebServerConf
 func (s *WebServer) SetupRoutes(r *gin.Engine) error {
 	// API routes
 	{
+		// Session endpoints live on their own group with no auth middleware:
+		// they are how the UI obtains a credential, so gating them would make
+		// logging in impossible. Registering them as a separate group rather
+		// than relying on ordering keeps that independent of gin's
+		// middleware-capture-at-registration behaviour.
+		if sessionMiddleware, ok := s.config.AuthMiddleware.(SessionAuthMiddleware); ok {
+			sessionMiddleware.SetupSessionRoutes(r.Group("/api"), s.logger)
+		}
+
 		api := r.Group("/api")
 
 		if authMiddleware := s.config.AuthMiddleware; authMiddleware != nil {

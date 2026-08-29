@@ -1,8 +1,14 @@
-import { Menu } from "lucide-react";
+import { LogOut, Menu } from "lucide-react";
 import { motion } from "motion/react";
 import { type FC, type ReactNode, useState } from "react";
+import { useAuthOptional } from "@/auth/auth-context";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { NavLink } from "./nav-link";
 
@@ -27,6 +33,10 @@ export const Layout: FC<LayoutProps> = ({
   navItems,
 }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Null when the app has not adopted AuthGate; false when no api secret is
+  // configured. Either way there is no session to end, so no button.
+  const auth = useAuthOptional();
+  const showLogout = auth?.authRequired ?? false;
 
   return (
     <div
@@ -54,6 +64,22 @@ export const Layout: FC<LayoutProps> = ({
               {item.label}
             </NavLink>
           ))}
+          {showLogout ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Sign out"
+                  disabled={auth?.loggingOut}
+                  onClick={() => auth?.logout()}
+                >
+                  <LogOut className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Sign out</TooltipContent>
+            </Tooltip>
+          ) : null}
         </nav>
 
         <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
@@ -77,6 +103,20 @@ export const Layout: FC<LayoutProps> = ({
                   {item.label}
                 </NavLink>
               ))}
+              {showLogout ? (
+                <Button
+                  variant="ghost"
+                  className="justify-start gap-2"
+                  disabled={auth?.loggingOut}
+                  onClick={() => {
+                    setDrawerOpen(false);
+                    auth?.logout();
+                  }}
+                >
+                  <LogOut className="size-4" />
+                  Sign out
+                </Button>
+              ) : null}
             </nav>
           </SheetContent>
         </Sheet>

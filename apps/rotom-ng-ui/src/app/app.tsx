@@ -1,6 +1,7 @@
 import "react-toastify/dist/ReactToastify.css";
 
 import {
+  AuthGate,
   ControllersPage,
   createAppQueryClient,
   DevicePage,
@@ -63,7 +64,11 @@ function AppContent() {
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AppContent />
+      {/* Outside AppContent so its polling queries never mount — and never
+          fire a burst of 401s — before there is a session. */}
+      <AuthGate appName="RotomNG" appIcon={rotomNgIcon}>
+        <AppContent />
+      </AuthGate>
       <ToastContainer theme="dark" />
     </QueryClientProvider>
   );

@@ -1,4 +1,5 @@
 export * from "./anim";
+export * from "./auth";
 export { ConfirmationDialog } from "./components/confirmation-dialog";
 export { CustomTablePagination } from "./components/custom-table-pagination";
 export { StatusGrid } from "./components/status-grid";
@@ -55,10 +56,17 @@ export {
   TABLE_WRAPPER,
 } from "./lib/aesthetic";
 export {
+  AuthError,
+  type AuthState,
+  apiFetch,
+  fetchAuthState,
   fetchConfig,
   fetchJobInstances,
   fetchJobs,
   fetchStatus,
+  isAuthError,
+  login,
+  logout,
 } from "./lib/api";
 export { formatMemory } from "./lib/format-memory";
 export { createAppQueryClient } from "./lib/query-client";
