@@ -266,7 +266,8 @@ func (fc *FakeController) connectV2(ctx context.Context, addr string) error {
 			LoginRequest: &protos.MitmRequest_LoginRequest{
 				WorkerId: fc.cfg.controllerID,
 				Username: defaultTestUser,
-				Source:   protos.MitmRequest_LoginRequest_PTC,
+				//nolint:staticcheck
+				Source: protos.MitmRequest_LoginRequest_PTC,
 			},
 		},
 	}
@@ -323,7 +324,8 @@ func (fc *FakeController) connectV1(ctx context.Context, addr string) error {
 			LoginRequest: &protos.MitmRequest_LoginRequest{
 				WorkerId: fc.cfg.controllerID,
 				Username: defaultTestUser,
-				Source:   protos.MitmRequest_LoginRequest_PTC,
+				//nolint:staticcheck
+				Source: protos.MitmRequest_LoginRequest_PTC,
 			},
 		},
 	}

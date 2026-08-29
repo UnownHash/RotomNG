@@ -21,5 +21,5 @@ docker:
 	@docker build -f apps/rotom-ng/Dockerfile -t rotom-ng:latest .
 
 clean:
-	@rm -rf rotom-ng libs/rotom_ui/static apps/rotom-ng/app/version/version.go libs/protos/rotom.pb.go
+	@rm -rf rotom-ng libs/rotom_ui/static
 	@rm -rf .nx node_modules libs/base-ui/node_modules apps/rotom-ng-ui/src/version.ts

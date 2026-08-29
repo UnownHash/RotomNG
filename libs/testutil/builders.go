@@ -146,7 +146,8 @@ func BuildLoginRequest(opts ...LoginRequestOption) *protos.MitmRequest {
 	lr := &protos.MitmRequest_LoginRequest{
 		WorkerId: uuid.New().String(),
 		Username: defaultTestUser,
-		Source:   protos.MitmRequest_LoginRequest_PTC,
+		//nolint:staticcheck
+		Source: protos.MitmRequest_LoginRequest_PTC,
 	}
 	for _, opt := range opts {
 		opt(lr)
