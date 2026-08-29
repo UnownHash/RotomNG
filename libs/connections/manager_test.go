@@ -1242,12 +1242,12 @@ func TestPruneSelectorWorkerIDs_PanicRecovery(_ *testing.T) {
 	o.selector.prunePanic = true
 
 	// Should not panic
-	mgr.pruneSelectorWorkerIDs()
+	mgr.pruneSelectorWorkerIDs(context.Background())
 }
 
 func TestPruneSelectorWorkerIDs_Success(t *testing.T) {
 	mgr, o := newTestManager()
-	mgr.pruneSelectorWorkerIDs()
+	mgr.pruneSelectorWorkerIDs(context.Background())
 
 	o.selector.mu.Lock()
 	if !o.selector.pruneCalled {

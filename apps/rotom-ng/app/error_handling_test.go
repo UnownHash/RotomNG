@@ -101,7 +101,8 @@ func dialRawController(t *testing.T, addr string) *websocket.Conn {
 			LoginRequest: &protos.MitmRequest_LoginRequest{
 				WorkerId: controllerID,
 				Username: "test-user",
-				Source:   protos.MitmRequest_LoginRequest_PTC,
+				//nolint:staticcheck
+				Source: protos.MitmRequest_LoginRequest_PTC,
 			},
 		},
 	}
