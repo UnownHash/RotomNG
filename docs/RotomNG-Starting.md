@@ -20,15 +20,19 @@ to `rotom-ng.toml` (for example, `python3 configs/rotom-og-to-ng.py old-config.j
 RotomNG images are published to `ghcr.io/unownhash/rotomng/rotom-ng`.
 Available tags:
 
-- `main` — built from the latest commit on the `main` branch. This is the
-  recommended tag for most users and maps to the latest release.
+- `main` — built from every commit on the `main` branch, so it can be ahead of
+  the most recent release.
+- `latest` — the most recent stable release. Prereleases never move this tag,
+  so use this instead of `main` if you only want released versions. This is the
+  recommended tag for most users.
 - `vX.Y.Z` (e.g. `v1.0.0`) — a specific stable release version. Pin to a
-  version tag for reproducible deployments.
-- `testing` — built from the `testing` branch. May contain pre-release or
-  in-progress changes; intended for testing only. This will generally point
-  to the latest testing release.
-- `vX.Y.Z-testing` (e.g. `v1.0.0-beta1-testing`) — a specific pre-release
-  version from the testing branch.
+  version tag for reproducible deployments. The unprefixed form (`1.0.0`) is
+  published too and refers to the same image.
+- `testing` — built from every commit on the `testing` branch, so it too can be
+  ahead of the most recent prerelease. May contain pre-release or in-progress
+  changes; intended for testing only.
+- `vX.Y.ZbetaN` / `vX.Y.ZalphaN` (e.g. `v1.0.1beta1`) — a specific pre-release
+  version.
 
 ### Running with Docker Compose
 
