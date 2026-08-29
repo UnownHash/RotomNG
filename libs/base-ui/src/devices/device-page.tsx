@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useCallback } from "react";
+import { apiFetch } from "../lib/api";
 import { statusQuery } from "../lib/query-options";
 import type { Device, Status } from "../types";
 import { DeviceGrids } from "./device-grids";
@@ -49,7 +50,7 @@ export const DevicePage = () => {
       const cancel = new AbortController();
       const timer = setTimeout(() => cancel.abort(), 5000);
       try {
-        const res = await fetch("/api/device/_/action/delete", {
+        const res = await apiFetch("/api/device/_/action/delete", {
           method: "PUT",
           signal: cancel.signal,
         });

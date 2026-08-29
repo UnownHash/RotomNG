@@ -30,6 +30,7 @@ import {
   TABLE_HEADER_ROW,
   TABLE_WRAPPER,
 } from "../lib/aesthetic";
+import { apiFetch } from "../lib/api";
 import { cn } from "../lib/utils";
 import { Search } from "../search";
 import {
@@ -450,7 +451,7 @@ const DevicesTable = ({
       deviceId: string;
       action: "reboot" | "restart" | "logcat" | "delete" | "disconnect";
     }) => {
-      const promise = fetch(`/api/device/${deviceId}/action/${action}`, {
+      const promise = apiFetch(`/api/device/${deviceId}/action/${action}`, {
         method: "PUT",
       }).then(async (response) => {
         if (response.status !== 200) {
@@ -517,7 +518,7 @@ const DevicesTable = ({
       const action = currentEnabled ? "disable" : "enable";
 
       try {
-        const response = await fetch(
+        const response = await apiFetch(
           `/api/device/${deviceId}/action/${action}`,
           { method: "PUT" },
         );

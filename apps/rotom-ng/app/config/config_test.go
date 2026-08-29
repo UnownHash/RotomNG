@@ -25,6 +25,7 @@ secret = "test-controller-secret"
 [http_listener]
 address = ":8082"
 secret = "test-api-secret"
+ui_session_ttl = "90m"
 
 [logging]
 level = "debug"
@@ -75,6 +76,9 @@ compress = true
 	}
 	if cfg.HTTPListener.Secret != "test-api-secret" {
 		t.Errorf("Expected HTTPListener.Secret to be 'test-api-secret', got %s", cfg.HTTPListener.Secret)
+	}
+	if cfg.HTTPListener.UISessionTTL != 90*time.Minute {
+		t.Errorf("Expected HTTPListener.UISessionTTL to be 90m, got %v", cfg.HTTPListener.UISessionTTL)
 	}
 
 	// Verify global shutdown timeout
@@ -334,6 +338,12 @@ func TestConfigSetDefaults(t *testing.T) {
 	}
 	if cfg.HTTPListener.Address != DefaultHTTPAddress {
 		t.Errorf("Expected default HTTPListener.Address to be '%s', got %s", DefaultHTTPAddress, cfg.HTTPListener.Address)
+	}
+	if cfg.HTTPListener.UISessionTTL != DefaultUISessionTTL {
+		t.Errorf("Expected default HTTPListener.UISessionTTL to be %v, got %v", DefaultUISessionTTL, cfg.HTTPListener.UISessionTTL)
+	}
+	if cfg.HTTPListener.UISessionTTL != 24*time.Hour {
+		t.Errorf("Expected the default UI session TTL to be one day, got %v", cfg.HTTPListener.UISessionTTL)
 	}
 
 	// Verify default shutdown timeout

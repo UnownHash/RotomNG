@@ -37,6 +37,90 @@ The HTTP API supports header-based authentication when configured. When a `secre
 **Authentication Responses**:
 - `401 Unauthorized`: Missing or invalid authentication header when authentication is required
 
+A request is accepted if it carries **any one** of the following credentials:
+
+| Credential | Intended for |
+| --- | --- |
+| `X-Rotom-Secret: <secret>` | Machine clients (Dragonite, scripts, Prometheus) |
+| `Authorization: Bearer <token>` | Clients that prefer a short-lived token to a static secret |
+| Session cookie + `X-Rotom-Session: 1` | The web UI |
+
+#### Session Endpoints
+
+These three endpoints are **not** gated by the auth middleware — they are how a
+browser obtains a credential in the first place.
+
+```http
+GET  /api/auth/me
+POST /api/auth/login
+POST /api/auth/logout
+```
+
+`GET /api/auth/me` reports what the caller needs to do:
+
+```json
+{ "status": "ok", "auth_required": true, "authenticated": false }
+```
+
+`POST /api/auth/login` exchanges the configured secret for a session:
+
+```http
+POST /api/auth/login
+Content-Type: application/json
+
+{ "secret": "your-api-secret-here" }
+```
+
+On success the response sets an `HttpOnly`, `SameSite=Strict` cookie holding a
+signed HS256 token. The cookie is also flagged `Secure` when the request
+arrives over TLS (directly, or via a proxy sending `X-Forwarded-Proto: https`).
+A wrong secret returns `401`; if no secret is configured at all, login returns
+`400`, since there is no session to create.
+
+Notes on session tokens:
+
+- **Rotation is revocation.** The token signing key is derived from the secret,
+  so changing `http_listener.secret` — including via config reload —
+  invalidates every outstanding session immediately. There is no other
+  revocation mechanism; tokens are stateless.
+- **Session lifetime** defaults to one day and is set by
+  `http_listener.ui_session_ttl`:
+
+  ```toml
+  [http_listener]
+  secret = "your-api-secret-here"
+  ui_session_ttl = "12h"   # default "24h"
+  ```
+
+  Go duration syntax has no day unit, so write `"24h"` rather than `"1d"` —
+  the latter fails to parse at startup. The value applies to sessions minted
+  after it takes effect: a token's expiry is signed into its claims, so
+  shortening the TTL does not retroactively end sessions already issued.
+  Rotating the secret is what does that.
+- **The `X-Rotom-Session` header is required** on cookie-authenticated
+  requests. The cookie alone is deliberately not sufficient: requiring a custom
+  header means a cross-site form post cannot ride a logged-in operator's
+  session. Requests authenticated by `X-Rotom-Secret` or `Authorization` do not
+  need it.
+- **Bearer tokens** are the same tokens the cookie carries, so a client can
+  call `/api/auth/login` and use the returned cookie value as a bearer token if
+  it would rather not hold the long-lived secret.
+- **Login is not rate limited.** It is an unauthenticated endpoint, so use a
+  high-entropy secret, and put the listener behind a proxy that throttles if it
+  is exposed to untrusted networks. Failed attempts are logged at `WARN` with
+  the client IP.
+
+#### Web UI
+
+The UI signs in through these endpoints. When a secret is configured it shows a
+sign-in form; when one is not, it loads straight through as before. Because the
+token lives in an `HttpOnly` cookie, the secret is never stored anywhere page
+JavaScript can read it.
+
+Operators fronting Rotom with a reverse proxy can skip the UI login entirely by
+having the proxy inject `X-Rotom-Secret` on `/api`, and handle authentication
+themselves.
+
 ### Configuration Endpoints
 
 #### Get Configuration

@@ -397,6 +397,7 @@ func (a *App) Init() error {
 	}
 
 	a.httpAuthMiddleware = auth.NewMiddleware(a.cfg.HTTPListener.Secret)
+	a.httpAuthMiddleware.SetSessionTTL(a.cfg.HTTPListener.UISessionTTL)
 	a.apiHandlerConfig = handlers.APIHandlerConfig[*Controller, *MITMWorker]{
 		Logger:             a.logger.With(slog.String("component", "api")),
 		ConnectionManager:  a.connectionManager,
@@ -525,6 +526,7 @@ func (a *App) reload() error {
 	a.controllerAuthMiddleware.SetSecret(cfg.ControllerListener.Secret)
 	a.deviceAuthMiddleware.SetSecret(cfg.DeviceListener.Secret)
 	a.httpAuthMiddleware.SetSecret(cfg.HTTPListener.Secret)
+	a.httpAuthMiddleware.SetSessionTTL(cfg.HTTPListener.UISessionTTL)
 
 	a.setShutdownTimeout(cfg.ShutdownTimeout)
 

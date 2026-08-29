@@ -28,6 +28,15 @@ address = ":7071"  # Default: ":7071"
 [http_listener]
 address = ":7072"  # Default: ":7072"
 # secret = "your-api-secret-here"  # Optional authentication secret for API access
+                                   # API clients send it as the X-Rotom-Secret header.
+                                   # The web UI prompts for it and exchanges it for a
+                                   # session cookie, so the UI keeps working when set.
+                                   # Changing it signs out every active UI session.
+# ui_session_ttl = "24h"           # Default: "24h" (one day). How long a web UI login
+                                   # lasts before the operator must sign in again.
+                                   # Note: Go duration syntax has no day unit -- write
+                                   # "24h", not "1d". Applies to new logins only;
+                                   # shortening it does not cut short existing sessions.
 
 # Rate limiting configuration (optional)
 # Controls how frequently a single device's workers can be selected

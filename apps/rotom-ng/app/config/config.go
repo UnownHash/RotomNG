@@ -39,6 +39,11 @@ const (
 	// controller connection that receives no data message within this period is
 	// considered dead, independent of ping/pong keep-alive activity.
 	DefaultControllerDataTimeout = 2 * time.Minute
+
+	// DefaultUISessionTTL is how long a web UI login lasts when
+	// http_listener.ui_session_ttl is not set: one day. Written as 24h because
+	// Go duration syntax has no day unit.
+	DefaultUISessionTTL = 24 * time.Hour
 )
 
 // DeviceListener holds configuration for the device WebSocket listener.
@@ -71,6 +76,10 @@ type HTTPListener struct {
 	Address  string       `koanf:"address"`
 	Listener net.Listener `koanf:"-"`
 	Secret   string       `koanf:"secret"`
+	// UISessionTTL is how long a web UI login stays valid (e.g. "30m", "12h").
+	// Defaults to DefaultUISessionTTL when unset or <= 0. Only relevant when
+	// Secret is set, since without a secret the UI never logs in.
+	UISessionTTL time.Duration `koanf:"ui_session_ttl"`
 }
 
 // Tuning holds performance tuning options.
@@ -200,6 +209,9 @@ func (cfg *Config) SetDefaults() {
 	}
 	if cfg.HTTPListener.Address == "" {
 		cfg.HTTPListener.Address = DefaultHTTPAddress
+	}
+	if cfg.HTTPListener.UISessionTTL <= 0 {
+		cfg.HTTPListener.UISessionTTL = DefaultUISessionTTL
 	}
 
 	// Initialize logging config if nil
