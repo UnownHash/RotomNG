@@ -3,6 +3,7 @@ export * from "./auth";
 export { ConfirmationDialog } from "./components/confirmation-dialog";
 export { CustomTablePagination } from "./components/custom-table-pagination";
 export { StatusGrid } from "./components/status-grid";
+export { TableEmptyState } from "./components/table-empty-state";
 export { TimeWindowStats } from "./components/time-window-stats";
 export { TimeWindowStatsGrid } from "./components/time-window-stats-grid";
 export { Button, buttonVariants } from "./components/ui/button";
@@ -79,6 +80,13 @@ export {
 } from "./lib/query-options";
 export { cn } from "./lib/utils";
 export * from "./search";
+export {
+  buildSearchIndex,
+  describeSearchableFields,
+  matchesSearch,
+  normalizeSearchTerm,
+  type SearchableField,
+} from "./search/searchable";
 export * from "./sorting";
 export { StatusGrids } from "./status/status-grids";
 export { StatusPage } from "./status/status-page";
@@ -86,4 +94,9 @@ export * from "./time-label";
 export * from "./types";
 export * from "./utils";
 export { WorkerDetails } from "./workers/worker-details";
+export {
+  WORKER_SEARCH_FIELD_LABELS,
+  WORKER_SEARCH_FIELDS,
+  workerRowKey,
+} from "./workers/worker-search";
 export { WorkersPage } from "./workers/workers-page";

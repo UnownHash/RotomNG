@@ -1,9 +1,10 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { motion } from "motion/react";
-import React, { memo, useCallback, useMemo, useState } from "react";
+import React, { memo, useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { Collapse } from "../anim/collapse";
 import { CustomTablePagination } from "../components/custom-table-pagination";
+import { TableEmptyState } from "../components/table-empty-state";
 import { Button } from "../components/ui/button";
 import {
   Card,
@@ -28,6 +29,7 @@ import {
   TABLE_WRAPPER,
 } from "../lib/aesthetic";
 import { Search } from "../search";
+import { matchesSearch, normalizeSearchTerm } from "../search/searchable";
 import {
   createControllerSorter,
   getNextSortState,
@@ -38,9 +40,20 @@ import { RelativeTimeLabel } from "../time-label";
 import type { Controller } from "../types";
 import { ControllerActions } from "./controller-actions";
 import { ControllerDetails } from "./controller-details";
+import {
+  CONTROLLER_SEARCH_FIELD_LABELS,
+  CONTROLLER_SEARCH_FIELDS,
+} from "./controller-search";
+
+/** Columns rendered by this table, for the empty state's colSpan. */
+const CONTROLLER_COLUMN_COUNT = 8;
 
 interface ControllersTableComponentProps {
   controllers: Controller[];
+  /** Rows before the search was applied, for the "5 of 200" heading. */
+  totalCount: number;
+  /** The term as typed, for the empty state and the page reset. */
+  search: string;
   onControllerAction: (
     controllerUuid: string,
     action: "disconnect" | "reconnect",
@@ -49,12 +62,15 @@ interface ControllersTableComponentProps {
 
 const ControllersTableComponent: React.FC<ControllersTableComponentProps> = ({
   controllers,
+  totalCount,
+  search,
   onControllerAction,
 }) => {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<string>("id");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [isTableExpanded, setIsTableExpanded] = useState(true);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   // Use the custom pagination hook with persistent storage
   const {
@@ -65,6 +81,9 @@ const ControllersTableComponent: React.FC<ControllersTableComponentProps> = ({
     getPaginatedItems,
   } = useTablePagination<Controller>({
     tableKey: "controllers",
+    itemCount: controllers.length,
+    resetKey: search,
+    scrollTargetRef: cardRef,
   });
 
   const toggleRowExpansion = useCallback((controllerId: string) => {
@@ -103,44 +122,9 @@ const ControllersTableComponent: React.FC<ControllersTableComponentProps> = ({
     return getPaginatedItems(sortedControllers);
   }, [sortedControllers, getPaginatedItems]);
 
-  // Enhanced pagination handler with scroll behavior
-  const handleChangePageWithScroll = useCallback(
-    (event: unknown, newPage: number) => {
-      const currentPage = page;
-      const totalPages = Math.ceil(sortedControllers.length / rowsPerPage);
-      const currentPageRowCount = paginatedControllers.length;
-
-      // Check if we're navigating back from a partially filled last page
-      const isNavigatingBack = newPage < currentPage;
-      const wasOnLastPage = currentPage === totalPages - 1;
-      const wasPartiallyFilled =
-        currentPageRowCount < rowsPerPage && currentPageRowCount > 0;
-
-      handleChangePage(event, newPage);
-
-      // If navigating back from a partially filled last page, scroll to bottom
-      // to keep the user's mouse over the back button
-      if (isNavigatingBack && wasOnLastPage && wasPartiallyFilled) {
-        // Use setTimeout to ensure the page change has been processed
-        setTimeout(() => {
-          window.scrollTo({
-            top: document.documentElement.scrollHeight,
-            behavior: "smooth",
-          });
-        }, 0);
-      }
-    },
-    [
-      page,
-      sortedControllers.length,
-      rowsPerPage,
-      paginatedControllers.length,
-      handleChangePage,
-    ],
-  );
-
   return (
     <motion.div
+      ref={cardRef}
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
@@ -165,7 +149,11 @@ const ControllersTableComponent: React.FC<ControllersTableComponentProps> = ({
               )}
             </Button>
             <CardTitle className="text-xl">
-              Controllers ({controllers.length})
+              Controllers (
+              {search
+                ? `${controllers.length} of ${totalCount}`
+                : `${totalCount}`}
+              )
             </CardTitle>
           </div>
         </CardHeader>
@@ -244,6 +232,14 @@ const ControllersTableComponent: React.FC<ControllersTableComponentProps> = ({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {paginatedControllers.length === 0 && (
+                    <TableEmptyState
+                      colSpan={CONTROLLER_COLUMN_COUNT}
+                      search={search}
+                      noun="controllers"
+                      searchableFields={CONTROLLER_SEARCH_FIELD_LABELS}
+                    />
+                  )}
                   {paginatedControllers.map((controller, index) => {
                     const controllerId = controller.id || `controller-${index}`;
                     const isExpanded = expandedRows.has(controllerId);
@@ -330,7 +326,7 @@ const ControllersTableComponent: React.FC<ControllersTableComponentProps> = ({
               count={sortedControllers.length}
               page={page}
               rowsPerPage={rowsPerPage}
-              onPageChange={handleChangePageWithScroll}
+              onPageChange={handleChangePage}
               onRowsPerPageChange={handleChangeRowsPerPage}
             />
           </CardContent>
@@ -396,13 +392,10 @@ const ControllersTable = ({ controllers }: { controllers: Controller[] }) => {
   );
 
   const filteredItems = useMemo(() => {
-    const lowercaseSearch = search.toLowerCase();
-    return controllers.filter(
-      (controller) =>
-        !lowercaseSearch ||
-        controller.id?.toLowerCase().includes(lowercaseSearch) ||
-        controller.user_agent?.toLowerCase().includes(lowercaseSearch) ||
-        controller.worker_id?.toLowerCase().includes(lowercaseSearch),
+    const term = normalizeSearchTerm(search);
+    if (!term) return controllers;
+    return controllers.filter((controller) =>
+      matchesSearch(controller, CONTROLLER_SEARCH_FIELDS, term),
     );
   }, [search, controllers]);
 
@@ -425,6 +418,8 @@ const ControllersTable = ({ controllers }: { controllers: Controller[] }) => {
       <div className="flex-1 min-h-0 overflow-hidden">
         <ControllersTableComponent
           controllers={filteredItems}
+          totalCount={controllers.length}
+          search={search}
           onControllerAction={handleControllerAction}
         />
       </div>
