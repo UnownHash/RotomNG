@@ -86,10 +86,14 @@ func (s *WebServer) SetupRoutes(r *gin.Engine) error {
 		s.logger.LogAttrs(context.Background(), slog.LevelInfo, "setting up HTTP server routes to proxy to UI dev server")
 
 		target, _ := url.Parse("http://localhost:4199")
-		proxy := httputil.NewSingleHostReverseProxy(target)
-		proxy.Rewrite = func(pr *httputil.ProxyRequest) {
-			pr.SetURL(target)
-			pr.Out.Host = target.Host
+		// Built with Rewrite alone rather than from NewSingleHostReverseProxy:
+		// that constructor sets Director, and ReverseProxy refuses to serve
+		// anything when both are set, which turned every page into a 502.
+		proxy := &httputil.ReverseProxy{
+			Rewrite: func(pr *httputil.ProxyRequest) {
+				pr.SetURL(target)
+				pr.Out.Host = target.Host
+			},
 		}
 
 		r.NoRoute(func(c *gin.Context) {
