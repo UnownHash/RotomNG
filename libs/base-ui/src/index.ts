@@ -2,6 +2,7 @@ export * from "./anim";
 export * from "./auth";
 export { ConfirmationDialog } from "./components/confirmation-dialog";
 export { CustomTablePagination } from "./components/custom-table-pagination";
+export { StaleDataBanner } from "./components/stale-data-banner";
 export { StatusGrid } from "./components/status-grid";
 export { TableEmptyState } from "./components/table-empty-state";
 export { TimeWindowStats } from "./components/time-window-stats";

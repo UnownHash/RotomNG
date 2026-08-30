@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "react-toastify";
 import { ConfirmationDialog } from "../components/confirmation-dialog";
+import { StaleDataBanner } from "../components/stale-data-banner";
 import { apiFetch } from "../lib/api";
 import { statusQuery } from "../lib/query-options";
 import type { Device, Status } from "../types";
@@ -19,9 +20,7 @@ const REMOVE_DEAD_TIMEOUT_MS = 5000;
 export const DevicePage = () => {
   const queryClient = useQueryClient();
   const [confirmRemoveDead, setConfirmRemoveDead] = useState(false);
-  const { isLoading, isFetching, error, data, isSuccess } = useQuery(
-    statusQuery(),
-  );
+  const { isLoading, isFetching, error, data } = useQuery(statusQuery());
 
   const handleDeviceUpdate = useCallback(
     (updatedDevice: Device) => {
@@ -113,7 +112,11 @@ export const DevicePage = () => {
     );
   }
 
-  if (error || !isSuccess) {
+  // Guard on the data, not on isSuccess. A refetch that fails while cached data
+  // is present flips status to "error" and isSuccess to false but leaves data
+  // in place, so keying the full-page error off isSuccess would still throw the
+  // whole view away on a single failed poll.
+  if (!data) {
     return (
       <div className="p-4">
         <p className="text-destructive">
@@ -125,6 +128,7 @@ export const DevicePage = () => {
 
   return (
     <div className="flex flex-col">
+      <StaleDataBanner error={error} />
       <div>
         <div className="flex items-center mb-4">
           <h1 className="text-3xl font-bold tracking-tight gradient-text mr-2">
