@@ -413,3 +413,41 @@ func TestLoadFromFileNotFound(t *testing.T) {
 		t.Error("Expected error when loading nonexistent file")
 	}
 }
+
+func TestHTTPListenerDisableUI(t *testing.T) {
+	tests := []struct {
+		name     string
+		listener string
+		want     bool
+	}{
+		{
+			name:     "absent defaults to serving the UI",
+			listener: "[http_listener]\naddress = \":7072\"\n",
+		},
+		{
+			name:     "explicit false",
+			listener: "[http_listener]\ndisable_ui = false\n",
+		},
+		{
+			name:     "explicit true",
+			listener: "[http_listener]\ndisable_ui = true\n",
+			want:     true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "rotom-ng.toml")
+			if err := os.WriteFile(path, []byte(test.listener), 0o600); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+			cfg, err := LoadFromFile(path)
+			if err != nil {
+				t.Fatalf("LoadFromFile: %v", err)
+			}
+			if cfg.HTTPListener.DisableUI != test.want {
+				t.Errorf("DisableUI = %v, want %v", cfg.HTTPListener.DisableUI, test.want)
+			}
+		})
+	}
+}

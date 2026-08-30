@@ -41,10 +41,25 @@ export {
 } from "./components/ui/tooltip";
 export { ControllersPage } from "./controllers/controllers-page";
 export { DevicePage } from "./devices/device-page";
-export { useConfig, useWorkerStatsEnabled } from "./hooks/use-config";
+export {
+  useActiveConfig,
+  useWorkerStatsEnabled,
+} from "./hooks/use-active-config";
+export { useConfig } from "./hooks/use-config";
+export {
+  type InstancesState,
+  instanceLabel,
+  pickInstance,
+  resolveInstanceLabel,
+  UNNAMED_INSTANCE,
+  useInstanceLabel,
+  useInstances,
+} from "./hooks/use-instances";
 export { useTablePagination } from "./hooks/use-table-pagination";
 export { JobsPage } from "./jobs/jobs-page";
 export { Box } from "./layout/box";
+export { InstanceGate } from "./layout/instance-gate";
+export { InstanceSwitcher } from "./layout/instance-switcher";
 export { Layout, type LayoutProps, type NavItem } from "./layout/layout";
 export { NavLink } from "./layout/nav-link";
 export {
@@ -69,6 +84,12 @@ export {
   logout,
 } from "./lib/api";
 export { formatMemory } from "./lib/format-memory";
+export {
+  getSelectedInstance,
+  INSTANCE_HEADER,
+  setSelectedInstance,
+  useSelectedInstance,
+} from "./lib/instance-store";
 export { createAppQueryClient } from "./lib/query-client";
 export {
   configQuery,

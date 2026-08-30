@@ -91,7 +91,8 @@ services:
   rotom-ng:
     build:
       context: ../..
-      dockerfile: apps/rotom-ng/Dockerfile
+      dockerfile: Dockerfile
+      target: rotom-ng
       args:
         DEV_MODE: "true"
     container_name: rotom-ng-dev

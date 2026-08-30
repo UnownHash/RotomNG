@@ -1,6 +1,6 @@
 import { StatusGrid } from "../components/status-grid";
 import { TimeWindowStatsGrid } from "../components/time-window-stats-grid";
-import { useWorkerStatsEnabled } from "../hooks/use-config";
+import { useWorkerStatsEnabled } from "../hooks/use-active-config";
 import type { Status } from "../types";
 import { calculateControllerMetrics } from "../utils/controller-calculations";
 import { calculateDeviceMetrics } from "../utils/device-calculations";

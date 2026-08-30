@@ -80,6 +80,14 @@ type HTTPListener struct {
 	// Defaults to DefaultUISessionTTL when unset or <= 0. Only relevant when
 	// Secret is set, since without a secret the UI never logs in.
 	UISessionTTL time.Duration `koanf:"ui_session_ttl"`
+	// DisableUI withholds the web UI, leaving the REST API as the only thing
+	// this listener answers. Every non-API path 404s.
+	//
+	// For deployments that reach the API from elsewhere -- a controller, or the
+	// rotom-ng-ui admin service -- and would rather not expose a browser
+	// surface at all. Applied per request, so a config reload turns it on or
+	// off without a restart.
+	DisableUI bool `koanf:"disable_ui"`
 }
 
 // Tuning holds performance tuning options.

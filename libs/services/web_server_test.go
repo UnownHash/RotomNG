@@ -37,6 +37,7 @@ type allowingAuth struct {
 	// handlerCalls counts in-chain middleware invocations, distinguishing the
 	// registered-route path from the NoRoute path.
 	handlerCalls atomic.Int64
+	allowCalls   atomic.Int64
 }
 
 func (a *allowingAuth) Handler(c *gin.Context) {
@@ -47,6 +48,17 @@ func (a *allowingAuth) Handler(c *gin.Context) {
 	}
 	c.Next()
 }
+
+func (a *allowingAuth) Allow(*gin.Context) bool {
+	a.allowCalls.Add(1)
+	return a.allow
+}
+
+// opaqueAuth is an AuthMiddleware that cannot answer out of chain: it does not
+// implement RequestAuthorizer.
+type opaqueAuth struct{}
+
+func (opaqueAuth) Handler(c *gin.Context) { c.Next() }
 
 // sessionAuth additionally registers unauthenticated session routes.
 type sessionAuth struct {
@@ -124,6 +136,150 @@ func TestAPIMissWithoutFallbackIs404(t *testing.T) {
 	}
 }
 
+func TestAPIFallbackHandlesUnmatchedPaths(t *testing.T) {
+	var fallbackPath atomic.Pointer[string]
+	engine, err := newTestWebServer(t, WebServerConfig{
+		UIPath: uiDir(t),
+		SetupAPIRoutes: func(group *gin.RouterGroup) {
+			group.GET("/known", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{"route": "known"})
+			})
+		},
+		APIFallback: func(c *gin.Context) {
+			path := c.Request.URL.Path
+			fallbackPath.Store(&path)
+			c.JSON(http.StatusTeapot, gin.H{"route": "fallback"})
+		},
+	})
+	if err != nil {
+		t.Fatalf("SetupRoutes: %v", err)
+	}
+
+	t.Run("registered route wins", func(t *testing.T) {
+		status, body := doGet(t, engine, "/api/known")
+		if status != http.StatusOK || !strings.Contains(body, "known") {
+			t.Errorf("status = %d, body = %s; want the registered route to answer", status, body)
+		}
+		if fallbackPath.Load() != nil {
+			t.Error("fallback ran for a route that was registered")
+		}
+	})
+
+	t.Run("unmatched path reaches the fallback", func(t *testing.T) {
+		status, body := doGet(t, engine, "/api/unknown/deep/path")
+		if status != http.StatusTeapot {
+			t.Errorf("status = %d, want the fallback's status (body %s)", status, body)
+		}
+		if got := fallbackPath.Load(); got == nil || *got != "/api/unknown/deep/path" {
+			t.Errorf("fallback saw %v, want the full request path", got)
+		}
+	})
+}
+
+// TestAPIFallbackAppliesAuth is the important one: the fallback is reached
+// through gin's NoRoute, which runs outside the authenticated /api group, so
+// the credential check has to be repeated there or the fallback becomes an
+// unauthenticated way into the API.
+func TestAPIFallbackAppliesAuth(t *testing.T) {
+	t.Run("denied", func(t *testing.T) {
+		auth := &allowingAuth{allow: false}
+		var fallbackRan atomic.Bool
+		engine, err := newTestWebServer(t, WebServerConfig{
+			UIPath:         uiDir(t),
+			AuthMiddleware: auth,
+			APIFallback: func(c *gin.Context) {
+				fallbackRan.Store(true)
+				c.Status(http.StatusOK)
+			},
+		})
+		if err != nil {
+			t.Fatalf("SetupRoutes: %v", err)
+		}
+
+		status, _ := doGet(t, engine, "/api/unknown")
+		if status != http.StatusUnauthorized {
+			t.Errorf("status = %d, want 401", status)
+		}
+		if fallbackRan.Load() {
+			t.Error("fallback ran for an unauthenticated request")
+		}
+		if auth.allowCalls.Load() == 0 {
+			t.Error("the out-of-chain authorizer was never consulted")
+		}
+	})
+
+	t.Run("allowed", func(t *testing.T) {
+		auth := &allowingAuth{allow: true}
+		var fallbackRan atomic.Bool
+		engine, err := newTestWebServer(t, WebServerConfig{
+			UIPath:         uiDir(t),
+			AuthMiddleware: auth,
+			APIFallback: func(c *gin.Context) {
+				fallbackRan.Store(true)
+				c.Status(http.StatusOK)
+			},
+		})
+		if err != nil {
+			t.Fatalf("SetupRoutes: %v", err)
+		}
+
+		status, _ := doGet(t, engine, "/api/unknown")
+		if status != http.StatusOK {
+			t.Errorf("status = %d, want 200", status)
+		}
+		if !fallbackRan.Load() {
+			t.Error("fallback did not run for an authorized request")
+		}
+	})
+
+	t.Run("no auth configured", func(t *testing.T) {
+		var fallbackRan atomic.Bool
+		engine, err := newTestWebServer(t, WebServerConfig{
+			UIPath: uiDir(t),
+			APIFallback: func(c *gin.Context) {
+				fallbackRan.Store(true)
+				c.Status(http.StatusOK)
+			},
+		})
+		if err != nil {
+			t.Fatalf("SetupRoutes: %v", err)
+		}
+
+		if status, _ := doGet(t, engine, "/api/unknown"); status != http.StatusOK {
+			t.Errorf("status = %d, want 200", status)
+		}
+		if !fallbackRan.Load() {
+			t.Error("fallback did not run with no auth middleware configured")
+		}
+	})
+}
+
+// TestAPIFallbackFailsClosedOnUnknownMiddleware covers the deliberate refusal:
+// an auth middleware that cannot answer out of chain must not silently turn
+// the fallback into the one unauthenticated route.
+func TestAPIFallbackFailsClosedOnUnknownMiddleware(t *testing.T) {
+	var fallbackRan atomic.Bool
+	engine, err := newTestWebServer(t, WebServerConfig{
+		UIPath:         uiDir(t),
+		AuthMiddleware: opaqueAuth{},
+		APIFallback: func(c *gin.Context) {
+			fallbackRan.Store(true)
+			c.Status(http.StatusOK)
+		},
+	})
+	if err != nil {
+		t.Fatalf("SetupRoutes: %v", err)
+	}
+
+	status, _ := doGet(t, engine, "/api/unknown")
+	if status != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", status)
+	}
+	if fallbackRan.Load() {
+		t.Error("fallback ran despite the middleware being unable to authorize it")
+	}
+}
+
 // --- UI serving ---
 
 func TestUIIsServedFromDisk(t *testing.T) {
@@ -186,10 +342,16 @@ func TestSetupRoutesRejectsNoUISource(t *testing.T) {
 //
 // It runs against a real server because ReverseProxy takes a different path
 // when the request context has no Done channel, which is what a synthetic
-// httptest request has -- and that difference is part of why the broken proxy
-// went unnoticed for so long.
+// httptest request has.
 func TestDevModeProxiesNonAPIPaths(t *testing.T) {
-	engine, err := newTestWebServer(t, WebServerConfig{DevMode: true})
+	var fallbackRan atomic.Bool
+	engine, err := newTestWebServer(t, WebServerConfig{
+		DevMode: true,
+		APIFallback: func(c *gin.Context) {
+			fallbackRan.Store(true)
+			c.Status(http.StatusOK)
+		},
+	})
 	if err != nil {
 		t.Fatalf("SetupRoutes: %v", err)
 	}
@@ -215,10 +377,12 @@ func TestDevModeProxiesNonAPIPaths(t *testing.T) {
 		return response.StatusCode, string(body)
 	}
 
-	// API paths are answered here rather than forwarded: the dev server serves
-	// the UI, and the API belongs to this process.
-	if status, body := get("/api/unknown"); status != http.StatusNotFound {
-		t.Errorf("api status = %d, want 404 (body %s)", status, body)
+	// API routing is unaffected by dev mode.
+	if status, _ := get("/api/unknown"); status != http.StatusOK {
+		t.Errorf("api status = %d, want the fallback to answer in dev mode too", status)
+	}
+	if !fallbackRan.Load() {
+		t.Error("fallback did not run in dev mode")
 	}
 
 	// The dev-server target is hardcoded, so standing in for it means binding
@@ -342,5 +506,106 @@ func TestNewWebServerBuildsAServer(t *testing.T) {
 	}
 	if server.HTTPServer == nil {
 		t.Error("WebServer has no underlying HTTPServer")
+	}
+}
+
+// --- UI disable switch ---
+
+// TestUIDisabledWithholdsTheUI covers the switch behind
+// http_listener.disable_ui: every non-API path is refused, while the API is
+// untouched. Operators use it to run a listener that answers the REST API and
+// presents no browser surface at all.
+func TestUIDisabledWithholdsTheUI(t *testing.T) {
+	engine, err := newTestWebServer(t, WebServerConfig{
+		UIPath:     uiDir(t),
+		UIDisabled: func() bool { return true },
+		SetupAPIRoutes: func(group *gin.RouterGroup) {
+			group.GET("/thing", func(c *gin.Context) { c.Status(http.StatusOK) })
+		},
+	})
+	if err != nil {
+		t.Fatalf("SetupRoutes: %v", err)
+	}
+
+	// A real file, a client-side route, and the index itself: all withheld.
+	for _, path := range []string{"/", "/asset.txt", "/devices/some-id"} {
+		status, body := doGet(t, engine, path)
+		if status != http.StatusNotFound {
+			t.Errorf("GET %s status = %d, want 404 (body %s)", path, status, body)
+		}
+		// Distinguishable from a mistyped path, so an operator can tell a
+		// deliberate refusal from a broken deployment.
+		if !strings.Contains(body, "disabled") {
+			t.Errorf("GET %s body = %q, want it to say the UI is disabled", path, body)
+		}
+	}
+
+	if status, _ := doGet(t, engine, "/api/thing"); status != http.StatusOK {
+		t.Errorf("api status = %d, want the API to keep working with the UI off", status)
+	}
+}
+
+// TestUIDisabledIsReadPerRequest is the point of the callback: gin's routes are
+// fixed once installed, so the switch has to be consulted inside the handlers
+// for a config reload to take effect without a restart.
+func TestUIDisabledIsReadPerRequest(t *testing.T) {
+	var disabled atomic.Bool
+	engine, err := newTestWebServer(t, WebServerConfig{
+		UIPath:     uiDir(t),
+		UIDisabled: disabled.Load,
+	})
+	if err != nil {
+		t.Fatalf("SetupRoutes: %v", err)
+	}
+
+	// Routes are registered once, here, with the UI enabled.
+	if status, body := doGet(t, engine, "/asset.txt"); status != http.StatusOK || body != "asset" {
+		t.Fatalf("before: status = %d body = %q, want the asset", status, body)
+	}
+
+	disabled.Store(true)
+	if status, _ := doGet(t, engine, "/asset.txt"); status != http.StatusNotFound {
+		t.Errorf("after disabling: status = %d, want 404", status)
+	}
+	if status, _ := doGet(t, engine, "/deep/link"); status != http.StatusNotFound {
+		t.Errorf("after disabling: SPA fallback status = %d, want 404", status)
+	}
+
+	// And back again, without re-registering anything.
+	disabled.Store(false)
+	if status, body := doGet(t, engine, "/asset.txt"); status != http.StatusOK || body != "asset" {
+		t.Errorf("after re-enabling: status = %d body = %q, want the asset", status, body)
+	}
+}
+
+func TestUIDisabledNilMeansEnabled(t *testing.T) {
+	// The admin service leaves it unset; nil must not be read as "disabled".
+	engine, err := newTestWebServer(t, WebServerConfig{UIPath: uiDir(t)})
+	if err != nil {
+		t.Fatalf("SetupRoutes: %v", err)
+	}
+	if status, _ := doGet(t, engine, "/asset.txt"); status != http.StatusOK {
+		t.Errorf("status = %d, want the UI served when UIDisabled is nil", status)
+	}
+}
+
+func TestUIDisabledInDevMode(t *testing.T) {
+	// Dev mode proxies the UI instead of serving it from disk, so the switch
+	// has to be honoured on that path too -- otherwise -ui-dev would quietly
+	// bypass it.
+	engine, err := newTestWebServer(t, WebServerConfig{
+		DevMode:    true,
+		UIDisabled: func() bool { return true },
+	})
+	if err != nil {
+		t.Fatalf("SetupRoutes: %v", err)
+	}
+
+	status, body := doGet(t, engine, "/some/page")
+	if status != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 (body %s)", status, body)
+	}
+	if !strings.Contains(body, "disabled") {
+		t.Errorf("body = %q, want it to say the UI is disabled", body)
 	}
 }

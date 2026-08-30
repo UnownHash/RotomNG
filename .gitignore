@@ -6,7 +6,9 @@
 /tmp
 /out-tsc
 /rotom-ng
+/rotom-ng-ui
 /apps/rotom-ng/rotom-ng
+/apps/rotom-ng-ui-server/rotom-ng-ui
 
 # dependencies
 node_modules

@@ -9,12 +9,15 @@
  * + html body would silently parse to `null` and the UI would mis-render.
  *
  * Every request goes through `apiFetch`, which attaches the header the server
- * requires on cookie-authenticated requests. Calling `fetch` directly against
+ * requires on cookie-authenticated requests, plus the selected instance when
+ * the UI is fronted by the admin service. Calling `fetch` directly against
  * `/api` will 401 whenever an api secret is configured — the cookie alone is
- * not enough.
+ * not enough — and, in multi-instance mode, would be answered by whichever
+ * instance the server picked rather than the selected one.
  */
 
 import type { ConfigResponse, JobInstances, Jobs, Status } from "../types";
+import { getSelectedInstance, INSTANCE_HEADER } from "./instance-store";
 
 /**
  * Header marking a request as intending to authenticate with the session
@@ -48,6 +51,13 @@ export const isAuthError = (error: unknown): error is AuthError =>
 const requestApi = (input: string, init?: RequestInit): Promise<Response> => {
   const headers = new Headers(init?.headers);
   headers.set(SESSION_REQUEST_HEADER, "1");
+
+  // Only meaningful against the admin service; a plain rotom-ng ignores it,
+  // and there is no selection to send when talking to one directly.
+  const instance = getSelectedInstance();
+  if (instance !== null) {
+    headers.set(INSTANCE_HEADER, instance);
+  }
 
   return fetch(input, { ...init, headers, credentials: "same-origin" });
 };

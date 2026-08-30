@@ -86,13 +86,20 @@ jobs:
 
   build:
     needs: [prepare]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.platform.os }}
     permissions:
       contents: read
       packages: write
     strategy:
       matrix:
-        include:
+        # Both images come from the root Dockerfile, one target apiece, at the
+        # same version, so they are matrixed rather than duplicated into a
+        # second job. The name doubles as the build target, the GHCR repo, and
+        # the binary inside the image. 2 x 2 jobs.
+        image: [rotom-ng, rotom-ng-ui]
+        # os and arch travel together, so they are one matrix entry rather than
+        # two dimensions that would cross-product into mismatched pairs.
+        platform:
           - os: ubuntu-latest
             arch: linux/amd64
             pair: linux-amd64
@@ -104,7 +111,7 @@ jobs:
         uses: actions/checkout@v6
       - name: downcase GHCR_REPO
         run: |
-          echo "GHCR_REPO=${{ env.REGISTRY }}/${GITHUB_REPOSITORY,,}/rotom-ng" >>${GITHUB_ENV}
+          echo "GHCR_REPO=${{ env.REGISTRY }}/${GITHUB_REPOSITORY,,}/${{ matrix.image }}" >>${GITHUB_ENV}
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -125,8 +132,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: apps/rotom-ng/Dockerfile
-          platforms: ${{ matrix.arch }}
+          file: Dockerfile
+          target: ${{ matrix.image }}
+          platforms: ${{ matrix.platform.arch }}
           labels: ${{ steps.meta.outputs.labels }}
           # Attestations can carry build-path metadata; keep the image to just the binary.
           provenance: false
@@ -140,7 +148,10 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.pair }}
+          # Namespaced by image: merge-image collects one image's digests at a
+          # time, and an unqualified name would mix them into a manifest
+          # listing the wrong architectures.
+          name: digests-${{ matrix.image }}-${{ matrix.platform.pair }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
@@ -148,16 +159,19 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: apps/rotom-ng/Dockerfile
-          platforms: ${{ matrix.arch }}
+          file: Dockerfile
+          target: ${{ matrix.image }}
+          platforms: ${{ matrix.platform.arch }}
           provenance: false
           sbom: false
           outputs: type=local,dest=${{ runner.temp }}/image-out
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: rotom-ng-binary-${{ matrix.pair }}
-          path: ${{ runner.temp }}/image-out/rotom-ng/rotom-ng
+          # Each target's WORKDIR is named after its binary, so the path
+          # inside the exported image is <name>/<name>.
+          name: binary-${{ matrix.image }}-${{ matrix.platform.pair }}
+          path: ${{ runner.temp }}/image-out/${{ matrix.image }}/${{ matrix.image }}
           if-no-files-found: error
           retention-days: 1
 
@@ -167,12 +181,15 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        image: [rotom-ng, rotom-ng-ui]
     steps:
       - name: Download digests
         uses: actions/download-artifact@v4
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digests-*
+          pattern: digests-${{ matrix.image }}-*
           merge-multiple: true
       - name: Log in to the Container registry
         uses: docker/login-action@v3
@@ -184,7 +201,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
       - name: downcase GHCR_REPO
         run: |
-          echo "GHCR_REPO=${{ env.REGISTRY }}/${GITHUB_REPOSITORY,,}/rotom-ng" >>${GITHUB_ENV}
+          echo "GHCR_REPO=${{ env.REGISTRY }}/${GITHUB_REPOSITORY,,}/${{ matrix.image }}" >>${GITHUB_ENV}
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
@@ -218,7 +235,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ${{ runner.temp }}/binaries
-          pattern: rotom-ng-binary-*
+          pattern: binary-*
       - name: Build tarballs
         run: |
           set -eu
@@ -227,7 +244,12 @@ jobs:
             dir="${{ runner.temp }}/stage/rotom-ng-v${VERSION}"
             rm -rf "${{ runner.temp }}/stage"
             mkdir -p "$dir"
-            install -m 755 "${{ runner.temp }}/binaries/rotom-ng-binary-${pair}/rotom-ng" "$dir/rotom-ng"
+            # Both binaries ship in the one tarball: they are the same version
+            # built from the same tree, and configs/ already carries an example
+            # for each, so splitting them would duplicate everything else.
+            for bin in rotom-ng rotom-ng-ui; do
+              install -m 755 "${{ runner.temp }}/binaries/binary-${bin}-${pair}/${bin}" "$dir/${bin}"
+            done
             # A fresh checkout contains tracked files only, so this cannot pick up
             # local work-in-progress. logs/ is created empty rather than copied so
             # its .KEEP placeholder does not ship.
@@ -261,13 +283,18 @@ jobs:
           if [ '${{ needs.prepare.outputs.prerelease }}' = 'true' ]; then
             prerelease_flag='--prerelease'
           fi
-          image="${{ env.REGISTRY }}/${GITHUB_REPOSITORY,,}/rotom-ng:v${VERSION}"
+          repo="${{ env.REGISTRY }}/${GITHUB_REPOSITORY,,}"
           # Built with printf so no leading indentation leaks in and turns the
           # notes into a markdown code block.
           notes=$(printf '%s\n' \
             "RotomNG ${VERSION}" \
             "" \
-            "Container image: \`${image}\`")
+            "Container images:" \
+            "" \
+            "- \`${repo}/rotom-ng:v${VERSION}\`" \
+            "- \`${repo}/rotom-ng-ui:v${VERSION}\` -- multi-instance admin UI, optional" \
+            "" \
+            "The tarballs carry both binaries.")
 
           # --target takes the exact commit this ran on, so the release does not
           # drift if the branch moves on afterwards.

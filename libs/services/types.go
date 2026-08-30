@@ -19,6 +19,15 @@ type SessionAuthMiddleware interface {
 	SetupSessionRoutes(group *gin.RouterGroup, logger *slog.Logger)
 }
 
+// RequestAuthorizer is an AuthMiddleware that can decide a request without
+// running the rest of the handler chain. Handlers that sit outside the
+// authenticated route group -- gin's NoRoute -- use it to apply the same
+// credential check the group would have applied.
+type RequestAuthorizer interface {
+	AuthMiddleware
+	Allow(ginContext *gin.Context) bool
+}
+
 // RoutesInstaller is an interface for setting up routes on a gin engine.
 type RoutesInstaller interface {
 	SetupRoutes(r *gin.Engine) error

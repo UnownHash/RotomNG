@@ -262,15 +262,8 @@ func (a *App) Init() error {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	hasEmbeddedUI := a.flagCfg.UIFS != nil
-	if !a.flagCfg.UIDev && (!hasEmbeddedUI || a.flagCfg.UIPath != "") {
-		indexPath := a.flagCfg.UIPath + "/index.html"
-		if _, err := os.Stat(indexPath); err != nil {
-			if os.IsNotExist(err) {
-				return fmt.Errorf("UI index.html file does not exist at path '%s' (ensure you built the UI or use -ui-path)", indexPath)
-			}
-			return fmt.Errorf("UI index.html file is not readable at path '%s' (ensure you built the UI or use -ui-path): %w", indexPath, err)
-		}
+	if err := a.checkUIAssets(); err != nil {
+		return err
 	}
 
 	a.logger.LogAttrs(context.Background(), slog.LevelInfo, "starting RotomNG", slog.String("version", appVersion), slog.String("git_sha", gitSHA))
@@ -441,6 +434,33 @@ func (a *App) Init() error {
 		return fmt.Errorf("failed to setup http server: %w", err)
 	}
 
+	return nil
+}
+
+// checkUIAssets fails startup when the UI is going to be served but its bundle
+// is not there, which is otherwise a confusing 404 at first page load.
+//
+// The assets only have to be present if the UI will actually be served.
+// Starting with http_listener.disable_ui set is a supported way to run an
+// API-only listener, so a missing bundle is not an error then. Switching the UI
+// back on at runtime does not re-check: the static handler simply 404s until
+// the assets are in place.
+func (a *App) checkUIAssets() error {
+	if a.cfg.HTTPListener.DisableUI || a.flagCfg.UIDev {
+		return nil
+	}
+	// An embedded bundle is always present, unless overridden by -ui-path.
+	if a.flagCfg.UIFS != nil && a.flagCfg.UIPath == "" {
+		return nil
+	}
+
+	indexPath := a.flagCfg.UIPath + "/index.html"
+	if _, err := os.Stat(indexPath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("UI index.html file does not exist at path '%s' (ensure you built the UI or use -ui-path)", indexPath)
+		}
+		return fmt.Errorf("UI index.html file is not readable at path '%s' (ensure you built the UI or use -ui-path): %w", indexPath, err)
+	}
 	return nil
 }
 
