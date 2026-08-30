@@ -1,4 +1,4 @@
-import { type RefObject, useCallback, useState } from "react";
+import { type RefObject, useCallback, useRef, useState } from "react";
 
 export interface UseTablePaginationOptions {
   /**
@@ -109,6 +109,14 @@ export function useTablePagination<T>({
   const lastPage = Math.max(0, Math.ceil(itemCount / rowsPerPage) - 1);
   const page = Math.min(requestedPage, lastPage);
 
+  // The pagination control hands back an absolute page it worked out from the
+  // page it was rendered with. Two clicks inside one render both compute the
+  // same target, so a quick double-click on Next used to advance a single
+  // page. Recording the rendered page lets the handler recover the step the
+  // reader asked for and apply it to whatever the current value is by then.
+  const renderedPage = useRef(page);
+  renderedPage.current = page;
+
   const scrollTableIntoView = useCallback(() => {
     const target = scrollTargetRef?.current;
     if (!target || typeof window === "undefined") return;
@@ -125,10 +133,14 @@ export function useTablePagination<T>({
 
   const handleChangePage = useCallback(
     (_event: unknown, newPage: number) => {
-      setRequestedPage(newPage);
+      const step = newPage - renderedPage.current;
+      setRequestedPage((previous) => {
+        const next = step === 0 ? newPage : previous + step;
+        return Math.max(0, Math.min(next, lastPage));
+      });
       scrollTableIntoView();
     },
-    [scrollTableIntoView],
+    [lastPage, scrollTableIntoView],
   );
 
   const handleChangeRowsPerPage = useCallback(
