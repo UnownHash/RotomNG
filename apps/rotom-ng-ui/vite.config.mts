@@ -10,11 +10,32 @@ export default defineConfig({
   cacheDir: '../../node_modules/.vite/apps/rotom-ng-ui',
   plugins: [react(), tailwindcss(), nxViteTsPaths()],
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, '../../libs/base-ui/src'),
-      react: path.resolve(__dirname, '../../node_modules/react'),
-      'react-dom': path.resolve(__dirname, '../../node_modules/react-dom'),
-    },
+    // Array form, because order matters: the bare '@' alias is a prefix of
+    // '@unownhash/...' and would otherwise claim it first. Listing the
+    // package name ahead of it keeps the workspace resolving base-ui by the
+    // same specifier a consumer installing it from the registry would use --
+    // for stylesheets as well as modules, which the tsconfig paths plugin
+    // does not cover.
+    alias: [
+      {
+        find: /^@unownhash\/rotom-base-ui$/,
+        replacement: path.resolve(__dirname, '../../libs/base-ui/src/index.ts'),
+      },
+      {
+        find: /^@unownhash\/rotom-base-ui\//,
+        replacement: path.resolve(__dirname, '../../libs/base-ui/src') + '/',
+      },
+      { find: /^@\//, replacement: path.resolve(__dirname, '../../libs/base-ui/src') + '/' },
+      // Both the bare specifier and its subpaths (react-dom/client,
+      // react/jsx-runtime), so every import lands in the one copy.
+      { find: /^react$/, replacement: path.resolve(__dirname, '../../node_modules/react') },
+      { find: /^react\//, replacement: path.resolve(__dirname, '../../node_modules/react') + '/' },
+      { find: /^react-dom$/, replacement: path.resolve(__dirname, '../../node_modules/react-dom') },
+      {
+        find: /^react-dom\//,
+        replacement: path.resolve(__dirname, '../../node_modules/react-dom') + '/',
+      },
+    ],
     dedupe: ['react', 'react-dom'],
   },
   optimizeDeps: {

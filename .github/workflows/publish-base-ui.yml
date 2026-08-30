@@ -1,0 +1,148 @@
+name: publish-base-ui
+
+# Publishes libs/base-ui to GitHub Packages as @unownhash/rotom-base-ui.
+#
+# Before this, the only way to reuse the library outside the repository was to
+# unpack a source tarball at a pinned commit. That gave no version history, no
+# integrity check, and no way to see which revision was in use without reading
+# a stamp file.
+#
+# Two ways in, deliberately:
+#
+#   - A base-ui-v<version> tag publishes that version under the "latest" tag.
+#     The tag has to agree with package.json, so a release cannot be labelled
+#     with a version the package will not report.
+#   - A push to main that touches the library publishes a prerelease under the
+#     "main" tag, versioned <version>-main.<short sha>. This is what replaces
+#     pinning a commit: a consumer can track main without waiting for a
+#     release and still record exactly what it installed.
+#
+# No paths: filter on the trigger. A paths filter applies to tag pushes too,
+# and tags usually land on a commit that changed nothing under libs/base-ui --
+# which would silently skip the release the tag was created to make. The
+# branch case is gated inside the job instead, where it can be spelled out.
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'base-ui-v*'
+  workflow_dispatch:
+
+concurrency:
+  group: publish-base-ui-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Two commits, so a branch push can diff against its predecessor.
+          fetch-depth: 2
+
+      - name: Decide whether to publish
+        id: gate
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -eu
+          if [ "$REF_TYPE" = 'tag' ] || [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Branch push: only when the library itself moved. Everything else on
+          # main -- Go changes, workflow edits, docs -- leaves the published
+          # package alone.
+          if git diff --quiet HEAD^ HEAD -- libs/base-ui; then
+            echo "libs/base-ui unchanged in this push; nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Bun
+        if: steps.gate.outputs.publish == 'true'
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install node dependencies
+        if: steps.gate.outputs.publish == 'true'
+        run: bun install --frozen-lockfile
+
+      # The package ships TypeScript source, so consumers compile it rather
+      # than importing a prebuilt bundle. That makes the application build the
+      # only thing standing between a broken library and a broken consumer --
+      # run it before publishing, not after someone installs it.
+      - name: Build the UI against the library
+        if: steps.gate.outputs.publish == 'true'
+        run: bun run build
+
+      - name: Lint
+        if: steps.gate.outputs.publish == 'true'
+        run: bun run lint
+
+      - name: Setup Node for publishing
+        if: steps.gate.outputs.publish == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@unownhash'
+
+      - name: Resolve the version to publish
+        id: version
+        if: steps.gate.outputs.publish == 'true'
+        working-directory: libs/base-ui
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -eu
+          pkg=$(node -p "require('./package.json').version")
+
+          if [ "$REF_TYPE" = 'tag' ]; then
+            tag_version="${REF_NAME#base-ui-v}"
+            if [ "$tag_version" != "$pkg" ]; then
+              echo "::error::tag '${REF_NAME}' implies version '${tag_version}', but libs/base-ui/package.json says '${pkg}'. Bump the manifest or retag."
+              exit 1
+            fi
+            printf 'value=%s\ndist_tag=latest\n' "$pkg" >> "$GITHUB_OUTPUT"
+          else
+            printf 'value=%s-main.%s\ndist_tag=main\n' "$pkg" "$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # npm version rather than editing the manifest by hand, so an invalid
+      # version fails here instead of producing a package nobody can install.
+      - name: Stamp the prerelease version
+        if: steps.gate.outputs.publish == 'true' && github.ref_type != 'tag'
+        working-directory: libs/base-ui
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Publish to GitHub Packages
+        if: steps.gate.outputs.publish == 'true'
+        working-directory: libs/base-ui
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIST_TAG: ${{ steps.version.outputs.dist_tag }}
+        run: npm publish --tag "$DIST_TAG"
+
+      - name: Summarise
+        if: steps.gate.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+          DIST_TAG: ${{ steps.version.outputs.dist_tag }}
+        run: |
+          {
+            printf '### Published\n\n'
+            printf '```\n@unownhash/rotom-base-ui@%s\ndist-tag: %s\n```\n\n' "$VERSION" "$DIST_TAG"
+            printf 'Install with:\n\n'
+            printf '```bash\nbun add @unownhash/rotom-base-ui@%s\n```\n' "$DIST_TAG"
+          } >> "$GITHUB_STEP_SUMMARY"

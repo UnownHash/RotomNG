@@ -1,9 +1,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Only this library's own sources. A consuming application adds an @source
+   for its own files in the stylesheet that imports this one -- reaching up
+   out of the package would stop resolving the moment it is installed from a
+   registry rather than read out of the workspace. */
 @source "../**/*.{ts,tsx}";
-@source "../../../../apps/rotom-ui/src/**/*.{ts,tsx}";
-@source "../../../../apps/rotom-ng-ui/src/**/*.{ts,tsx}";
 @source "../*.{ts,tsx}";
 
 @custom-variant dark (&:is(.dark *));

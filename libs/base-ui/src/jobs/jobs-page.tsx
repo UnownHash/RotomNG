@@ -16,6 +16,7 @@ import {
   AESTHETIC_CARD_HEADER,
   AESTHETIC_DANGER_BUTTON,
 } from "../lib/aesthetic";
+import { apiFetch } from "../lib/api";
 import {
   jobInstancesQuery,
   jobsQuery,
@@ -55,7 +56,7 @@ export const JobsPage = () => {
       const cancel = new AbortController();
       const timer = setTimeout(() => cancel.abort(), 5000);
       try {
-        const res = await fetch("/api/job-instance/-/clear", {
+        const res = await apiFetch("/api/job-instance/-/clear", {
           method: "PUT",
           signal: cancel.signal,
         });
@@ -77,7 +78,7 @@ export const JobsPage = () => {
       const cancel = new AbortController();
       const timer = setTimeout(() => cancel.abort(), 5000);
       try {
-        const res = await fetch("/api/job/-/reload", {
+        const res = await apiFetch("/api/job/-/reload", {
           method: "PUT",
           signal: cancel.signal,
         });
