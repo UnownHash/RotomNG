@@ -27,6 +27,7 @@ import {
   TABLE_HEADER_ROW,
   TABLE_WRAPPER,
 } from "../lib/aesthetic";
+import { apiFetch } from "../lib/api";
 import { Search } from "../search";
 import {
   createControllerSorter,
@@ -362,7 +363,7 @@ const ControllersTable = ({ controllers }: { controllers: Controller[] }) => {
         },
       };
 
-      const promise = fetch(
+      const promise = apiFetch(
         `/api/controller/${controllerUuid}/action/${action}`,
         { method: "PUT" },
       ).then(async (response) => {

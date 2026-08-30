@@ -4,6 +4,12 @@ Configuration for RotomNG lives in [configs](../configs).
 
 There is an example config file that should be copied to rotom-ng.toml and
 edited to your liking. All sections are optional and have sensible defaults.
+That one file is all a rotom-ng needs, its web UI included.
+
+(There is a second example, `rotom-ng-ui.toml.example`, for an optional extra
+service that fronts several rotom-ng instances with a single UI. Ignore it
+unless you run more than one — see
+[Multi-instance admin UI](RotomNG-UI-Server.md).)
 
 If you are migrating from OG Rotom, there is a conversion script at
 [configs/rotom-og-to-ng.py](../configs/rotom-og-to-ng.py) that will convert
@@ -17,8 +23,15 @@ to `rotom-ng.toml` (for example, `python3 configs/rotom-og-to-ng.py old-config.j
 
 ### Image tags
 
-RotomNG images are published to `ghcr.io/unownhash/rotomng/rotom-ng`.
-Available tags:
+Two images are published, both under `ghcr.io/unownhash/rotomng/`:
+
+- `rotom-ng` — the connection manager. This is the one you want.
+- `rotom-ng-ui` — the optional multi-instance admin UI, which fronts several
+  `rotom-ng` instances and proxies to them. Skip it unless you run more than
+  one; see [Multi-instance admin UI](RotomNG-UI-Server.md).
+
+Both are built and tagged together from the same commit, so a given tag means
+the same version of both. Available tags:
 
 - `main` — built from every commit on the `main` branch, so it can be ahead of
   the most recent release.
@@ -46,10 +59,11 @@ $ docker compose up -d
 
 ### Building locally
 
-If you prefer to build the image yourself instead of pulling from GHCR:
+If you prefer to build the images yourself instead of pulling from GHCR:
 
 ```
-$ docker build -f apps/rotom-ng/Dockerfile -t rotom-ng .
+$ make docker      # or: docker build --target rotom-ng -t rotom-ng .
+$ make docker-ui   # the admin UI image, only if you need it
 ```
 
 ## Non-docker (local install)
@@ -69,7 +83,9 @@ $ make
 ```
 
 This will install frontend dependencies via Bun, build the UI, and compile
-the Go binary.
+both Go binaries: `rotom-ng`, and the `rotom-ng-ui` admin server described in
+[Multi-instance admin UI](RotomNG-UI-Server.md). `make rotom-ng` builds just
+the first, `make rotom-ng-ui` just the second.
 
 ### Starting with pm2
 
@@ -88,3 +104,8 @@ You can also specify a config file path:
 ```
 $ ./rotom-ng /path/to/rotom-ng.toml
 ```
+
+### Running several instances behind one UI
+
+If you run more than one rotom-ng, `rotom-ng-ui` serves a single web UI that
+switches between them. See [Multi-instance admin UI](RotomNG-UI-Server.md).

@@ -1,0 +1,69 @@
+// The RotomNG UI server serves the RotomNG web UI for several rotom-ng
+// instances at once, proxying its API calls to whichever one is selected.
+package main
+
+import (
+	"flag"
+	"log"
+	"os"
+
+	"github.com/UnownHash/RotomNG/libs/gitutil"
+	"github.com/UnownHash/RotomNG/libs/rotom_ui"
+
+	uiapp "github.com/UnownHash/RotomNG/apps/rotom-ng-ui-server/app"
+	"github.com/UnownHash/RotomNG/apps/rotom-ng-ui-server/app/config"
+	"github.com/UnownHash/RotomNG/apps/rotom-ng/app/version"
+)
+
+const defaultConfigFile = "configs/rotom-ng-ui.toml"
+
+func main() {
+	var flagCfg uiapp.FlagConfig
+	uiFS := rotom_ui.GetUIFS()
+	hasEmbeddedUI := uiFS != nil
+
+	// Parse command line flags
+	flag.BoolVar(&flagCfg.DebugMode, "debug", false, "Enable debug mode (sets Gin to debug mode)")
+	if hasEmbeddedUI {
+		flag.StringVar(&flagCfg.UIPath, "ui-path", "", "Path to the UI static files directory to override embedded UI")
+	} else {
+		flag.StringVar(&flagCfg.UIPath, "ui-path", "./libs/rotom_ui/static", "Path to the UI static files directory")
+	}
+	flag.BoolVar(&flagCfg.UIDev, "ui-dev", false, "Enable UI development mode (proxy to dev server)")
+	showVersion := flag.Bool("version", false, "Print version and exit")
+	flag.Parse()
+
+	if *showVersion {
+		log.Printf("RotomNG UI %s[%s]", version.AppVersion, gitutil.GetGitBuildSHA())
+		os.Exit(0)
+	}
+
+	flagCfg.UIFS = uiFS
+
+	// Load config - use remaining args for config path
+	configPath := defaultConfigFile
+	args := flag.Args()
+	if len(args) > 0 {
+		configPath = args[0]
+	}
+
+	flagCfg.ReloadConfig = func() (*config.Config, error) {
+		return config.LoadFromFile(configPath)
+	}
+
+	cfg, err := config.LoadFromFile(configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config from '%s': %v", configPath, err)
+	}
+
+	app, err := uiapp.NewApp(cfg, flagCfg)
+	if err != nil {
+		log.Fatalf("Failed to create app: %v", err)
+	}
+
+	if err := app.Init(); err != nil {
+		log.Fatalf("failed to initialize app: %v", err)
+	}
+
+	app.Run()
+}

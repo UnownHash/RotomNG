@@ -9,7 +9,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useInstanceLabel } from "@/hooks/use-instances";
 import { cn } from "@/lib/utils";
+import { InstanceSwitcher } from "./instance-switcher";
 import { NavLink } from "./nav-link";
 
 export interface NavItem {
@@ -37,6 +39,7 @@ export const Layout: FC<LayoutProps> = ({
   // configured. Either way there is no session to end, so no button.
   const auth = useAuthOptional();
   const showLogout = auth?.authRequired ?? false;
+  const instanceName = useInstanceLabel();
 
   return (
     <div
@@ -50,12 +53,25 @@ export const Layout: FC<LayoutProps> = ({
         transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
         className="sticky w-full top-0 z-40 flex h-14 items-center justify-between border-b border-border/60 bg-background/80 px-4 backdrop-blur"
       >
-        <div className="flex items-center gap-2">
-          <img src={appIcon} alt={appName} className="size-8" />
-          <span className="text-base font-bold gradient-text">
-            {appName}
-            {appVersion ? ` v${appVersion}` : ""}
-          </span>
+        <div className="flex min-w-0 items-center gap-2">
+          <img src={appIcon} alt={appName} className="size-8 shrink-0" />
+          <div className="flex min-w-0 flex-col leading-tight">
+            <span className="text-base font-bold gradient-text">
+              {appName}
+              {appVersion ? ` v${appVersion}` : ""}
+            </span>
+            {instanceName ? (
+              // Which server the page is actually about. Fronted by the admin
+              // service this follows the selection, so it doubles as
+              // confirmation that a switch took effect.
+              <span
+                className="max-w-48 truncate text-xs text-muted-foreground sm:max-w-xs"
+                title={instanceName}
+              >
+                Instance: {instanceName}
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <nav className="hidden md:flex items-center gap-1">
@@ -64,6 +80,8 @@ export const Layout: FC<LayoutProps> = ({
               {item.label}
             </NavLink>
           ))}
+          {/* Renders nothing unless the UI is fronted by the admin service. */}
+          <InstanceSwitcher />
           {showLogout ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -103,6 +121,7 @@ export const Layout: FC<LayoutProps> = ({
                   {item.label}
                 </NavLink>
               ))}
+              <InstanceSwitcher block onSelect={() => setDrawerOpen(false)} />
               {showLogout ? (
                 <Button
                   variant="ghost"

@@ -11,3 +11,35 @@ services:
       - "7070:7070"
       - "7071:7071"
       - "7072:7072"
+
+  # ---------------------------------------------------------------------------
+  # OPTIONAL: the multi-instance admin UI. Most deployments do not need this.
+  #
+  # The rotom-ng above already serves its own web UI on 7072, and for a single
+  # instance that is all you want. rotom-ng-ui is for running SEVERAL rotom-ng
+  # instances: it serves one UI for all of them and proxies each API call to
+  # whichever instance you pick from a menu in the header, so you get one page
+  # instead of a browser tab per instance. It manages no devices or workers of
+  # its own. See docs/RotomNG-UI-Server.md.
+  #
+  # To use it: uncomment the block below, add a second rotom-ng service (or
+  # point it at instances running elsewhere), copy
+  # configs/rotom-ng-ui.toml.example to configs/rotom-ng-ui.toml, and list your
+  # instances in it. Then browse to port 7073 instead of 7072.
+  #
+  # Keep its tag matching rotom-ng's above: both images are built and tagged
+  # from the same commit.
+  #
+  # Instances are listed in configs/rotom-ng-ui.toml by base_url; those URLs are
+  # resolved from inside this container, so use compose service names
+  # (http://rotom-ng:7072) rather than localhost.
+  #
+  # rotom-ng-ui:
+  #   image: ghcr.io/unownhash/rotomng/rotom-ng-ui:main
+  #   container_name: rotom-ng-ui
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ${PWD}/configs:/rotom-ng-ui/configs
+  #     - ${PWD}/logs:/rotom-ng-ui/logs
+  #   ports:
+  #     - "7073:7073"

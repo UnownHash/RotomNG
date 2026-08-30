@@ -17,6 +17,7 @@ import (
 type HTTPAPIHandler interface {
 	SetupAPIRoutes(apiGroup *gin.RouterGroup)
 	GetPrometheusEnabled() bool
+	GetUIDisabled() bool
 	GetConfig(ginContext *gin.Context)
 	ConfigReload(ginContext *gin.Context)
 }
@@ -55,6 +56,7 @@ func NewHTTPServer(ctx context.Context, logger *slog.Logger, cfg Config) (*HTTPS
 		DevMode:        cfg.DevMode,
 		AuthMiddleware: cfg.AuthMiddleware,
 		StatsRegistrar: cfg.StatsRegistrar,
+		UIDisabled:     apiHandler.GetUIDisabled,
 		SetupAPIRoutes: func(apiGroup *gin.RouterGroup) {
 			apiGroup.GET("/config", apiHandler.GetConfig)
 			apiGroup.PUT("/config/reload", apiHandler.ConfigReload)

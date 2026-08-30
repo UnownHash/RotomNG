@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
@@ -28,6 +29,21 @@ type WebServerConfig struct {
 	AuthMiddleware AuthMiddleware
 	SetupAPIRoutes func(apiGroup *gin.RouterGroup)
 	StatsRegistrar StatsRegistrar
+	// APIFallback, when set, handles /api requests that matched no route
+	// registered by SetupAPIRoutes, in place of the 404. It runs only after
+	// AuthMiddleware has accepted the request, so it is as protected as the
+	// registered routes are. The admin service uses it to reverse-proxy every
+	// endpoint it does not serve itself, which is why a new endpoint on
+	// rotom-ng needs no corresponding change here.
+	APIFallback func(ginContext *gin.Context)
+	// UIDisabled reports whether the web UI should be withheld, leaving the
+	// API as the only thing this listener answers.
+	//
+	// It is consulted per request rather than at route-registration time so a
+	// config reload can turn the UI off without a restart -- gin's routes are
+	// fixed once installed, so the switch has to live inside the handlers.
+	// Nil means the UI is always served.
+	UIDisabled func() bool
 }
 
 // WebServer manages the HTTP server with API routing and UI serving.
@@ -98,7 +114,11 @@ func (s *WebServer) SetupRoutes(r *gin.Engine) error {
 
 		r.NoRoute(func(c *gin.Context) {
 			if strings.HasPrefix(c.Request.URL.Path, "/api/") {
-				c.AbortWithStatusJSON(404, gin.H{"status": fieldError, fieldError: "resource does not exist"})
+				s.handleAPIMiss(c)
+				return
+			}
+			if s.uiDisabled() {
+				s.refuseUI(c)
 				return
 			}
 			proxy.ServeHTTP(c.Writer, c.Request)
@@ -122,11 +142,24 @@ func (s *WebServer) SetupRoutes(r *gin.Engine) error {
 		}
 
 		staticServer := static.Serve("/", ginServeFS)
-		r.Use(staticServer)
+		// Wrapped rather than installed directly so the UI can be switched off
+		// at runtime: skipping the middleware leaves the request to NoRoute,
+		// which refuses it below.
+		r.Use(func(c *gin.Context) {
+			if s.uiDisabled() {
+				c.Next()
+				return
+			}
+			staticServer(c)
+		})
 
 		r.NoRoute(func(c *gin.Context) {
 			if strings.HasPrefix(c.Request.URL.Path, "/api/") {
-				c.AbortWithStatusJSON(404, gin.H{"status": fieldError, fieldError: "resource does not exist"})
+				s.handleAPIMiss(c)
+				return
+			}
+			if s.uiDisabled() {
+				s.refuseUI(c)
 				return
 			}
 			c.Request.URL.Path = "/"
@@ -134,4 +167,53 @@ func (s *WebServer) SetupRoutes(r *gin.Engine) error {
 		})
 	}
 	return nil
+}
+
+// uiDisabled reports whether the UI should be withheld from this request.
+func (s *WebServer) uiDisabled() bool {
+	return s.config.UIDisabled != nil && s.config.UIDisabled()
+}
+
+// refuseUI answers a UI request on a listener whose UI is switched off.
+//
+// It says so rather than returning a bare 404 because the two are worth
+// telling apart: a 404 from a mistyped path is a client problem, while this
+// one means the server is configured not to serve the UI at all.
+func (s *WebServer) refuseUI(c *gin.Context) {
+	c.AbortWithStatusJSON(http.StatusNotFound, gin.H{
+		"status":   fieldError,
+		fieldError: "the web ui is disabled",
+	})
+}
+
+// handleAPIMiss serves an /api request that matched no registered route: the
+// configured fallback if there is one, a 404 otherwise.
+//
+// NoRoute runs outside the authenticated /api group, so the credential check
+// the group applies has to be repeated here before the fallback sees the
+// request.
+func (s *WebServer) handleAPIMiss(c *gin.Context) {
+	fallback := s.config.APIFallback
+	if fallback == nil {
+		c.AbortWithStatusJSON(404, gin.H{"status": fieldError, fieldError: "resource does not exist"})
+		return
+	}
+	if authMiddleware := s.config.AuthMiddleware; authMiddleware != nil {
+		// Fail closed on a middleware that cannot answer out-of-chain: an
+		// unrecognised type must not quietly turn the fallback into the one
+		// unauthenticated way into the API.
+		authorizer, ok := authMiddleware.(RequestAuthorizer)
+		if !ok {
+			s.logger.LogAttrs(c.Request.Context(), slog.LevelError,
+				"auth middleware cannot authorize the API fallback; refusing the request",
+				slog.String("path", c.Request.URL.Path))
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
+		if !authorizer.Allow(c) {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+	}
+	fallback(c)
 }

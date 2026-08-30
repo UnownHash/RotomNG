@@ -160,6 +160,9 @@ Returns the current system configuration including version, tuning parameters, a
       "pong_wait": "30s",
       "registration_timeout": "1m0s",
       "data_timeout": "2m0s"
+    },
+    "http_listener": {
+      "disable_ui": true
     }
   }
 }
@@ -172,6 +175,7 @@ Returns the current system configuration including version, tuning parameters, a
 - `device_listener` / `controller_listener`: websocket keep-alive settings. `ping_interval` and `pong_wait` are durations; the read timeout fires if no pong or data message is received within `ping_interval + pong_wait`. The `device_listener` settings also govern MITM worker connections, which connect on the device listener.
 - `registration_timeout`: max time allowed for a controller to complete registration before the normal ping-based read timeout applies.
 - `data_timeout`: controller connections only. The connection is considered dead if no data message is received within this period, independent of ping/pong keep-alive activity. Defaults to `"2m"`; set to `"0s"` to disable.
+- `http_listener.disable_ui`: only present when the web UI has been switched off (see below). It is reported so an operator can confirm a reload took effect; the UI simply being gone is otherwise hard to tell from a broken deployment. No other `http_listener` field is exposed -- `secret` in particular is never returned.
 
 #### Reload Configuration
 ```http
@@ -973,3 +977,25 @@ Rate limiting can be configured per device and applies to worker selection. When
 ## Configuration
 
 The system supports runtime configuration reloading via the `/api/config/reload` endpoint. Configuration changes take effect immediately without requiring a restart.
+
+### Serving the API without the web UI
+
+Setting `disable_ui` in `[http_listener]` withholds the web UI: every non-API
+path returns `404` with `{"status": "error", "error": "the web ui is disabled"}`,
+and only the REST API is served.
+
+```toml
+[http_listener]
+address = ":7072"
+disable_ui = true
+```
+
+Useful when the API is reached from elsewhere -- a controller, or the
+[multi-instance admin UI](RotomNG-UI-Server.md) -- and there is no reason to
+expose a browser surface on this listener.
+
+It is applied per request, so `/api/config/reload` (or SIGHUP) turns it on and
+off without a restart. Starting with it enabled also means the UI assets need
+not be present at all; note that switching the UI back on at runtime does not
+re-check for them, so a build without the UI bundle will serve 404s until it is
+restarted with the assets in place.

@@ -5,12 +5,13 @@ import {
   ControllersPage,
   createAppQueryClient,
   DevicePage,
+  InstanceGate,
   JobsPage,
   Layout,
   type NavItem,
   StatusPage,
   TooltipProvider,
-  useConfig,
+  useActiveConfig,
   WorkersPage,
 } from "@rotom-ng/base-ui";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -30,8 +31,10 @@ const baseNavItems: NavItem[] = [
 ];
 
 function AppContent() {
-  const { data: configData } = useConfig();
-  const jobsEnabled = configData?.config?.jobs?.enable === true;
+  // The active instance's config when fronted by the admin service, so the
+  // nav follows the instance the operator selected rather than the service.
+  const config = useActiveConfig();
+  const jobsEnabled = config?.jobs?.enable === true;
 
   const navItems = useMemo(() => {
     if (jobsEnabled) {
@@ -48,14 +51,19 @@ function AppContent() {
         appVersion={APP_VERSION}
         navItems={navItems}
       >
-        <Routes>
-          <Route path="/" element={<StatusPage />} />
-          <Route path="devices" element={<DevicePage />} />
-          <Route path="controllers" element={<ControllersPage />} />
-          <Route path="workers" element={<WorkersPage />} />
-          {jobsEnabled && <Route path="jobs" element={<JobsPage />} />}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        {/* Inside Layout so the instance picker stays reachable when the
+            selected instance is down. Passes through unless the UI is fronted
+            by the admin service. */}
+        <InstanceGate>
+          <Routes>
+            <Route path="/" element={<StatusPage />} />
+            <Route path="devices" element={<DevicePage />} />
+            <Route path="controllers" element={<ControllersPage />} />
+            <Route path="workers" element={<WorkersPage />} />
+            {jobsEnabled && <Route path="jobs" element={<JobsPage />} />}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </InstanceGate>
       </Layout>
     </TooltipProvider>
   );

@@ -3,6 +3,11 @@
 # Copy this file to rotom-ng.toml and modify as needed.
 #
 # All sections are optional - if not specified, sensible defaults will be used.
+#
+# This is the only config a rotom-ng needs, including its web UI. The separate
+# rotom-ng-ui.toml.example in this directory is for an optional extra service
+# that fronts SEVERAL rotom-ng instances with one UI; ignore it unless you run
+# more than one.
 
 # Device listener configuration (optional)
 # Handles connections from mitm devices (e.g., RealDeviceMap devices) as well as
@@ -37,6 +42,17 @@ address = ":7072"  # Default: ":7072"
                                    # Note: Go duration syntax has no day unit -- write
                                    # "24h", not "1d". Applies to new logins only;
                                    # shortening it does not cut short existing sessions.
+# disable_ui = false               # Default: false, i.e. the web UI is served. Set to
+                                   # true to withhold it entirely: every non-API path
+                                   # returns 404 and only the REST API is served.
+                                   # Most deployments should leave this alone -- the UI
+                                   # is how you look at this instance. It is for the
+                                   # case where something else reaches the API and no
+                                   # one browses here directly: a controller, or the
+                                   # optional rotom-ng-ui service fronting several
+                                   # instances (see docs/RotomNG-UI-Server.md).
+                                   # Applied per request, so a config reload turns it on
+                                   # or off without a restart.
 
 # Rate limiting configuration (optional)
 # Controls how frequently a single device's workers can be selected

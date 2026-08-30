@@ -1,5 +1,5 @@
 import { TimeWindowStatsGrid } from "../components/time-window-stats-grid";
-import { useWorkerStatsEnabled } from "../hooks/use-config";
+import { useWorkerStatsEnabled } from "../hooks/use-active-config";
 import type { Status } from "../types";
 import {
   calculateWorkerMetrics,

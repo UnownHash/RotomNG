@@ -1,4 +1,4 @@
-import { generateConfig } from "./data/config";
+import { generateAdminConfig, generateConfig } from "./data/config";
 import { generateControllers } from "./data/controllers";
 import { generateDevices } from "./data/devices";
 import { generateJobInstances } from "./data/job-instances";
@@ -38,7 +38,8 @@ export const mockState: MockState = {
   live: options.live,
 };
 
-export const buildConfigResponse = () => generateConfig();
+export const buildConfigResponse = () =>
+  options.multi ? generateAdminConfig(options.live) : generateConfig();
 
 const randInRange = (n: number, jitter: number) =>
   n * (1 + (Math.random() - 0.5) * 2 * jitter);

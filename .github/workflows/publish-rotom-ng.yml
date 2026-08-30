@@ -17,13 +17,19 @@ jobs:
 
   build:
     needs: [checks]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.platform.os }}
     permissions:
       contents: read
       packages: write
     strategy:
       matrix:
-        include:
+        # Both images come from the root Dockerfile, one target apiece, so
+        # they are matrixed rather than duplicated into a second job. The name
+        # doubles as the build target and the GHCR repo. 2 x 2 jobs.
+        image: [rotom-ng, rotom-ng-ui]
+        # os and arch travel together, so they are one matrix entry rather than
+        # two dimensions that would cross-product into mismatched pairs.
+        platform:
           - os: ubuntu-latest
             arch: linux/amd64
           - os: ubuntu-24.04-arm
@@ -33,11 +39,11 @@ jobs:
         uses: actions/checkout@v6
       - name: Prepare
         run: |
-          platform=${{ matrix.arch }}
+          platform=${{ matrix.platform.arch }}
           echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
       - name: downcase GHCR_REPO
         run: |
-          echo "GHCR_REPO=${{ env.REGISTRY }}/${GITHUB_REPOSITORY,,}/rotom-ng" >>${GITHUB_ENV}
+          echo "GHCR_REPO=${{ env.REGISTRY }}/${GITHUB_REPOSITORY,,}/${{ matrix.image }}" >>${GITHUB_ENV}
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
@@ -56,8 +62,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: apps/rotom-ng/Dockerfile
-          platforms: ${{ matrix.arch }}
+          file: Dockerfile
+          target: ${{ matrix.image }}
+          platforms: ${{ matrix.platform.arch }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing') && format('type=image,"name={0}",push-by-digest=true,name-canonical=true,push=true', env.GHCR_REPO) || 'type=docker' }}
       - name: Export digest
@@ -70,7 +77,10 @@ jobs:
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing'
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ env.PLATFORM_PAIR }}
+          # Namespaced by image: the merge job below collects one image's
+          # digests at a time, and an unqualified name would mix them and
+          # produce a manifest listing the wrong architectures.
+          name: digests-${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
@@ -82,6 +92,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        image: [rotom-ng, rotom-ng-ui]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -89,7 +102,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digests-*
+          pattern: digests-${{ matrix.image }}-*
           merge-multiple: true
       - name: Log in to the Container registry
         uses: docker/login-action@v3
@@ -101,7 +114,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
       - name: downcase GHCR_REPO
         run: |
-          echo "GHCR_REPO=${{ env.REGISTRY }}/${GITHUB_REPOSITORY,,}/rotom-ng" >>${GITHUB_ENV}
+          echo "GHCR_REPO=${{ env.REGISTRY }}/${GITHUB_REPOSITORY,,}/${{ matrix.image }}" >>${GITHUB_ENV}
       # Branch tag only. Version tags (and releases) are published by release.yml,
       # which is manual.
       - name: Docker meta

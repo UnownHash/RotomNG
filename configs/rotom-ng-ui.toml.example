@@ -1,0 +1,93 @@
+# Example configuration file for the RotomNG UI server (rotom-ng-ui)
+#
+# ONLY NEEDED IF YOU RUN SEVERAL ROTOM-NG INSTANCES. If you run one, ignore
+# this file entirely: that rotom-ng already serves its own web UI on its
+# http_listener (:7072 by default), and this service adds nothing.
+#
+# rotom-ng-ui serves that same web UI for several rotom-ng instances at once,
+# with a menu in the header to switch between them. It manages no devices,
+# workers, or controllers of its own: every API call the UI makes is proxied to
+# whichever instance is selected. Point it at your instances below and browse
+# to it instead of to any individual rotom-ng.
+#
+# Copy this file to rotom-ng-ui.toml and modify as needed. It is separate from
+# rotom-ng.toml; each rotom-ng instance keeps its own config, unchanged.
+#
+# All sections except [[instances]] are optional - if not specified, sensible
+# defaults will be used.
+
+# Optional name for this admin service itself, reported by /api/config.
+# The instances it fronts have their own names, set in their own configs.
+# instance = "admin"
+
+# HTTP listener configuration (optional)
+# Provides the REST API and the web UI. Same shape as rotom-ng's own
+# http_listener section.
+[http_listener]
+address = ":7073"  # Default: ":7073"
+# secret = "your-api-secret-here"  # Optional authentication secret for API access
+                                   # to THIS service. It is unrelated to the
+                                   # per-instance secrets below: this one guards
+                                   # the admin UI, those authenticate us to each
+                                   # rotom-ng.
+                                   # API clients send it as the X-Rotom-Secret header.
+                                   # The web UI prompts for it and exchanges it for a
+                                   # session cookie, so the UI keeps working when set.
+                                   # Changing it signs out every active UI session.
+# ui_session_ttl = "24h"           # Default: "24h" (one day). How long a web UI login
+                                   # lasts before the operator must sign in again.
+                                   # Note: Go duration syntax has no day unit -- write
+                                   # "24h", not "1d". Applies to new logins only;
+                                   # shortening it does not cut short existing sessions.
+
+# The rotom-ng instances this service fronts. Repeat the block once per
+# instance. With none configured the UI loads but reports that no instances are
+# reachable.
+#
+# base_url is the root of that instance's http_listener, WITHOUT the /api
+# suffix -- "/api" is appended when requests are proxied. It is also how the UI
+# identifies an instance when it selects one, so each must be distinct.
+#
+# api_secret is that instance's own http_listener secret. Leave it out when the
+# instance has no secret configured.
+#
+# The name shown in the UI's instance picker is the instance's own `instance`
+# setting, read from its /api/config; instances that do not set one are listed
+# by URL.
+[[instances]]
+base_url = "http://127.0.0.1:7072"
+# api_secret = "that-instances-api-secret"
+
+# [[instances]]
+# base_url = "http://127.0.0.1:7082"
+# api_secret = "another-instances-api-secret"
+
+# Instance reachability monitoring (optional)
+# Each instance's /api/config is polled on this interval. An instance counts as
+# reachable only once that call has succeeded, and the UI will not let an
+# operator switch to one that is not reachable.
+[instance_monitor]
+# interval = "10s"  # Default: "10s". How often each instance is probed.
+# timeout = "5s"    # Default: "5s". Deadline for a single probe. Keep it below
+                    # the interval so a hung instance cannot delay a round.
+
+# Logging configuration (optional)
+[logging]
+level = "info"          # Log level: panic, fatal, error, warn, warning, info, debug, trace (default: "info")
+format = "plain"        # Log format: plain, json (default: "plain")
+no_console_log = false  # Disable console logging, only log to file (default: false)
+
+# File logging configuration (optional)
+# File logging is enabled by default, writing to ./logs/rotom-ng-ui.log
+# To disable file logging, set disable = true
+[logging.file]
+# disable = false                     # Set to true to disable file logging (default: false)
+# path = "./logs/rotom-ng-ui.log"     # Full path to log file (default: "./logs/rotom-ng-ui.log")
+# max_size_mb = 512                   # Maximum size in MB before rotation (default: 0 = no limit)
+# max_backups = 30                    # Number of old log files to keep (default: 0 = keep all)
+# max_age_days = 30                   # Maximum age in days to keep log files (default: 0 = no age limit)
+# compress = false                    # Compress rotated log files (default: false)
+
+# Global shutdown timeout (optional)
+# Default: "5s"
+shutdown_timeout = "5s"

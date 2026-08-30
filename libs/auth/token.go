@@ -22,6 +22,14 @@ const SessionCookieName = "rotom_session"
 // if a browser ignores SameSite.
 const SessionRequestHeader = "X-Rotom-Session"
 
+// SecretRequestHeader carries the shared api secret on machine-client
+// requests, the credential Middleware checks before it considers any session
+// token. Clients that proxy to another rotom-ng set it to that instance's
+// secret.
+//
+//nolint:gosec // G101: this is the name of a header, not a credential.
+const SecretRequestHeader = "X-Rotom-Secret"
+
 // DefaultSessionTTL is how long a UI session stays valid before the operator
 // has to log in again. Callers can override it per-middleware with
 // SetSessionTTL; this is the fallback when they do not.

@@ -38,17 +38,27 @@ func NewMiddleware(expectedSecret string) *Middleware {
 
 // Handler is a gin middleware that authenticates the request.
 func (mw *Middleware) Handler(ginContext *gin.Context) {
-	secret := mw.currentSecret()
-	if secret == "" {
-		ginContext.Next()
-		return
-	}
-	if !mw.authenticate(ginContext, secret) {
+	if !mw.Allow(ginContext) {
 		ginContext.Status(http.StatusUnauthorized)
 		ginContext.Abort()
 		return
 	}
 	ginContext.Next()
+}
+
+// Allow reports whether the request carries an acceptable credential, without
+// touching the response or the handler chain. Handlers reached outside the
+// authenticated route group -- gin's NoRoute, for one -- use this to make the
+// same decision Handler would.
+//
+// Returns true when no secret is configured, matching Handler's behaviour of
+// letting every request through on an unauthenticated instance.
+func (mw *Middleware) Allow(ginContext *gin.Context) bool {
+	secret := mw.currentSecret()
+	if secret == "" {
+		return true
+	}
+	return mw.authenticate(ginContext, secret)
 }
 
 // SetSessionTTL sets how long newly minted UI sessions stay valid. Values <= 0
@@ -109,7 +119,7 @@ func (mw *Middleware) VerifySessionToken(token string) error {
 
 // authenticate reports whether the request carries any acceptable credential.
 func (mw *Middleware) authenticate(ginContext *gin.Context, secret string) bool {
-	if secretsEqual(ginContext.GetHeader("X-Rotom-Secret"), secret) {
+	if secretsEqual(ginContext.GetHeader(SecretRequestHeader), secret) {
 		return true
 	}
 

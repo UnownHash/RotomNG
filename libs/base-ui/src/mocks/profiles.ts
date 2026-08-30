@@ -36,12 +36,19 @@ export const PROFILE_SIZES: Record<ProfileName, MockProfileCounts> = {
 export interface MockOptions {
   profile: ProfileName;
   live: boolean;
+  /**
+   * Serve the config the admin UI service serves, so multi-instance mode can
+   * be worked on without running one. Combined with `live`, the first
+   * instance's reachability flaps, which is the only way to reach the
+   * "current instance not reachable" state from a mock.
+   */
+  multi: boolean;
 }
 
 /** Parse `?mock=<csv>` once at module load; modifying the URL requires a reload. */
 export const readMockOptions = (): MockOptions => {
   if (typeof window === "undefined") {
-    return { profile: "medium", live: false };
+    return { profile: "medium", live: false, multi: false };
   }
   const raw = new URLSearchParams(window.location.search).get("mock") ?? "";
   const parts = raw
@@ -51,11 +58,13 @@ export const readMockOptions = (): MockOptions => {
 
   let profile: ProfileName = "medium";
   let live = false;
+  let multi = false;
 
   for (const part of parts) {
     if (part === "live") live = true;
+    else if (part === "multi") multi = true;
     else if (part in PROFILE_SIZES) profile = part as ProfileName;
   }
 
-  return { profile, live };
+  return { profile, live, multi };
 };

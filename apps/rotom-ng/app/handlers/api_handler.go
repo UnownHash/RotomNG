@@ -84,6 +84,12 @@ func (ah *HTTPAPIHandler) GetConfig(c *gin.Context) {
 	if cfg.Instance != "" {
 		jsonConfig["instance"] = cfg.Instance
 	}
+	// Only when true, as with disable_worker_stats. Reported so an operator can
+	// confirm a reload actually landed -- the UI being gone is otherwise the
+	// only feedback, and that is hard to tell from a broken deployment.
+	if cfg.HTTPListener != nil && cfg.HTTPListener.DisableUI {
+		jsonConfig["http_listener"] = gin.H{"disable_ui": true}
+	}
 	if cfg.Jobs != nil && cfg.Jobs.Enable {
 		jsonConfig["jobs"] = gin.H{
 			"enable": true,
@@ -116,6 +122,13 @@ func (ah *HTTPAPIHandler) GetConfig(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "config": jsonConfig})
+}
+
+// GetUIDisabled reports whether the web UI is switched off. Read per request
+// by the web server, so a config reload takes effect without a restart.
+func (ah *HTTPAPIHandler) GetUIDisabled() bool {
+	cfg := ah.getSettings().CurrentConfig
+	return cfg.HTTPListener != nil && cfg.HTTPListener.DisableUI
 }
 
 // GetPrometheusEnabled returns whether Prometheus metrics are enabled.

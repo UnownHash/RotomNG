@@ -55,6 +55,14 @@ func WithDisableWorkerStats(disabled bool) Option {
 	}
 }
 
+// WithDisableUI withholds the web UI, leaving the REST API as the only thing
+// the http listener answers.
+func WithDisableUI(disabled bool) Option {
+	return func(cfg *config.Config) {
+		cfg.HTTPListener.DisableUI = disabled
+	}
+}
+
 // WithPrometheusNamespace sets the Prometheus metrics namespace.
 func WithPrometheusNamespace(namespace string) Option {
 	return func(cfg *config.Config) {
