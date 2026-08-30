@@ -142,3 +142,23 @@ func TestGzipMiddlewareSkipsExcludedPaths(t *testing.T) {
 		})
 	}
 }
+
+// promhttp negotiates Accept-Encoding itself, so wrapping it produced a body
+// that was gzipped twice: a scraper decompresses once and gets another gzip
+// stream rather than exposition text.
+func TestGzipMiddlewareSkipsMetrics(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := NewEngineWithLogger(slog.New(slog.DiscardHandler))
+	r.GET("/api/metrics", func(c *gin.Context) {
+		c.String(http.StatusOK, largeBody)
+	})
+
+	w := doGet(t, r, "/api/metrics", map[string]string{"Accept-Encoding": "gzip"})
+
+	if got := w.Header().Get("Content-Encoding"); got != "" {
+		t.Errorf("Content-Encoding = %q, want empty: promhttp compresses this itself", got)
+	}
+	if w.Body.String() != largeBody {
+		t.Error("metrics body was altered by the middleware")
+	}
+}

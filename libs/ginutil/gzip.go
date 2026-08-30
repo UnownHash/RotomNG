@@ -20,11 +20,20 @@ var gzipExcludedExtensions = []string{
 	".ico", ".woff", ".woff2", ".zip", ".gz",
 }
 
-// gzipExcludedPathRegexps skips endpoints whose bodies are already a compressed
-// container. Logcat replies are a zip built in memory and served with an
-// explicit Content-Length, so there is nothing left for deflate to find.
+// gzipExcludedPathRegexps skips endpoints that must not be wrapped a second
+// time.
+//
+// Logcat replies are a zip built in memory and served with an explicit
+// Content-Length, so there is nothing left for deflate to find.
+//
+// The metrics endpoint is served by promhttp, which negotiates Accept-Encoding
+// itself and returns an already-gzipped body. Wrapping that produced a
+// double-compressed response: a scraper decompresses once and is handed another
+// gzip stream. Prometheus exposition still goes out compressed, just by the
+// handler that owns it rather than by this middleware.
 var gzipExcludedPathRegexps = []string{
 	`/action/logcat$`,
+	`/metrics$`,
 }
 
 // GzipMiddleware compresses responses for clients that advertise gzip support.
