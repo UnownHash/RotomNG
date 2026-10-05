@@ -1,10 +1,11 @@
 import { CheckCircle2, ChevronDown, ChevronRight, XCircle } from "lucide-react";
 import { motion } from "motion/react";
-import React, { memo, useCallback, useMemo, useState } from "react";
+import React, { memo, useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { Collapse } from "../anim/collapse";
 import { MagneticButton } from "../anim/magnetic-button";
 import { CustomTablePagination } from "../components/custom-table-pagination";
+import { TableEmptyState } from "../components/table-empty-state";
 import { Button } from "../components/ui/button";
 import {
   Card,
@@ -33,6 +34,9 @@ import {
 import { apiFetch } from "../lib/api";
 import { cn } from "../lib/utils";
 import { Search } from "../search";
+import { CrossLink } from "../search/cross-link";
+import { matchesSearch, normalizeSearchTerm } from "../search/searchable";
+import { useSearchParamState } from "../search/use-search-param";
 import {
   createDeviceSorter,
   getNextSortState,
@@ -43,9 +47,20 @@ import { RelativeTimeLabel } from "../time-label";
 import type { Device } from "../types";
 import { DeviceActions } from "./device-actions";
 import { DeviceDetails } from "./device-details";
+import {
+  DEVICE_SEARCH_FIELD_LABELS,
+  DEVICE_SEARCH_FIELDS,
+} from "./device-search";
+
+/** Columns rendered by this table, for the empty state's colSpan. */
+const DEVICE_COLUMN_COUNT = 11;
 
 interface DevicesTableComponentProps {
   devices: Device[];
+  /** Rows before the search was applied, for the "5 of 40" heading. */
+  totalCount: number;
+  /** The term as typed, for the empty state and the page reset. */
+  search: string;
   onDeviceAction: (
     deviceId: string,
     action: "reboot" | "restart" | "logcat" | "delete" | "disconnect",
@@ -56,6 +71,8 @@ interface DevicesTableComponentProps {
 
 const DevicesTableComponent: React.FC<DevicesTableComponentProps> = ({
   devices,
+  totalCount,
+  search,
   onDeviceAction,
   onToggleDeviceEnabled,
   onRemoveDead,
@@ -64,6 +81,7 @@ const DevicesTableComponent: React.FC<DevicesTableComponentProps> = ({
   const [sortBy, setSortBy] = useState<string>("origin");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [isTableExpanded, setIsTableExpanded] = useState(true);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   // Use the custom pagination hook with persistent storage
   const {
@@ -74,6 +92,9 @@ const DevicesTableComponent: React.FC<DevicesTableComponentProps> = ({
     getPaginatedItems,
   } = useTablePagination<Device>({
     tableKey: "devices",
+    itemCount: devices.length,
+    resetKey: search,
+    scrollTargetRef: cardRef,
   });
 
   const toggleRowExpansion = useCallback((deviceId: string) => {
@@ -112,42 +133,6 @@ const DevicesTableComponent: React.FC<DevicesTableComponentProps> = ({
     return getPaginatedItems(sortedDevices);
   }, [sortedDevices, getPaginatedItems]);
 
-  // Enhanced pagination handler with scroll behavior
-  const handleChangePageWithScroll = useCallback(
-    (event: unknown, newPage: number) => {
-      const currentPage = page;
-      const totalPages = Math.ceil(sortedDevices.length / rowsPerPage);
-      const currentPageRowCount = paginatedDevices.length;
-
-      // Check if we're navigating back from a partially filled last page
-      const isNavigatingBack = newPage < currentPage;
-      const wasOnLastPage = currentPage === totalPages - 1;
-      const wasPartiallyFilled =
-        currentPageRowCount < rowsPerPage && currentPageRowCount > 0;
-
-      handleChangePage(event, newPage);
-
-      // If navigating back from a partially filled last page, scroll to bottom
-      // to keep the user's mouse over the back button
-      if (isNavigatingBack && wasOnLastPage && wasPartiallyFilled) {
-        // Use setTimeout to ensure the page change has been processed
-        setTimeout(() => {
-          window.scrollTo({
-            top: document.documentElement.scrollHeight,
-            behavior: "smooth",
-          });
-        }, 0);
-      }
-    },
-    [
-      page,
-      sortedDevices.length,
-      rowsPerPage,
-      paginatedDevices.length,
-      handleChangePage,
-    ],
-  );
-
   // Memoize toggle handler to avoid recreation on every render
   const handleToggleDeviceEnabled = useCallback(
     (deviceId: string, currentEnabled: boolean) => {
@@ -158,6 +143,7 @@ const DevicesTableComponent: React.FC<DevicesTableComponentProps> = ({
 
   return (
     <motion.div
+      ref={cardRef}
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
@@ -182,7 +168,8 @@ const DevicesTableComponent: React.FC<DevicesTableComponentProps> = ({
               )}
             </Button>
             <CardTitle className="text-xl">
-              Devices ({devices.length})
+              Devices (
+              {search ? `${devices.length} of ${totalCount}` : `${totalCount}`})
             </CardTitle>
           </div>
           {onRemoveDead && (
@@ -283,6 +270,14 @@ const DevicesTableComponent: React.FC<DevicesTableComponentProps> = ({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {paginatedDevices.length === 0 && (
+                    <TableEmptyState
+                      colSpan={DEVICE_COLUMN_COUNT}
+                      search={search}
+                      noun="devices"
+                      searchableFields={DEVICE_SEARCH_FIELD_LABELS}
+                    />
+                  )}
                   {paginatedDevices.map((device, index) => {
                     const deviceId = device.id || `device-${index}`;
                     const isExpanded = expandedRows.has(deviceId);
@@ -321,7 +316,17 @@ const DevicesTableComponent: React.FC<DevicesTableComponentProps> = ({
                             </Button>
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-left">
-                            {device.origin}
+                            {device.id ? (
+                              <CrossLink
+                                to="/workers"
+                                term={device.id}
+                                label={`Show workers on ${device.origin || device.id}`}
+                              >
+                                {device.origin}
+                              </CrossLink>
+                            ) : (
+                              device.origin
+                            )}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-center">
                             <div className="flex justify-center">
@@ -423,7 +428,7 @@ const DevicesTableComponent: React.FC<DevicesTableComponentProps> = ({
               count={sortedDevices.length}
               page={page}
               rowsPerPage={rowsPerPage}
-              onPageChange={handleChangePageWithScroll}
+              onPageChange={handleChangePage}
               onRowsPerPageChange={handleChangeRowsPerPage}
             />
           </CardContent>
@@ -442,7 +447,7 @@ const DevicesTable = ({
   onDeviceUpdate?: (updatedDevice: Device) => void;
   onRemoveDead?: () => void;
 }) => {
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useSearchParamState();
   const executeAction = useCallback(
     async ({
       deviceId,
@@ -549,13 +554,10 @@ const DevicesTable = ({
   );
 
   const filteredItems = useMemo(() => {
-    const lowercaseSearch = search.toLowerCase();
-    return devices.filter(
-      (device) =>
-        !lowercaseSearch ||
-        device.origin?.toLowerCase().includes(lowercaseSearch) ||
-        device.id?.toLowerCase().includes(lowercaseSearch) ||
-        device.version.toString().toLowerCase().includes(lowercaseSearch),
+    const term = normalizeSearchTerm(search);
+    if (!term) return devices;
+    return devices.filter((device) =>
+      matchesSearch(device, DEVICE_SEARCH_FIELDS, term),
     );
   }, [search, devices]);
 
@@ -577,6 +579,8 @@ const DevicesTable = ({
       <div className="flex-1 min-h-0 overflow-hidden">
         <DevicesTableComponent
           devices={filteredItems}
+          totalCount={devices.length}
+          search={search}
           onDeviceAction={handleDeviceAction}
           onToggleDeviceEnabled={toggleDeviceEnabled}
           onRemoveDead={onRemoveDead}

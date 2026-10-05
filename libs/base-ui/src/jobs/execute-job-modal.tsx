@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "../components/ui/table";
 import { TABLE_BODY_ROW, TABLE_HEADER_ROW } from "../lib/aesthetic";
+import { apiFetch } from "../lib/api";
 import { Search } from "../search";
 import { compareAlphanumeric } from "../sorting";
 import type { Device } from "../types";
@@ -65,7 +66,7 @@ export const ExecuteJobModal: React.FC<ExecuteJobModalProps> = ({
 
   const executeJob = useCallback(
     async ({ deviceIds }: { deviceIds: string[] | number[] }) => {
-      const promise = fetch(`/api/job/${jobId}/run`, {
+      const promise = apiFetch(`/api/job/${jobId}/run`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

@@ -5,6 +5,7 @@ go 1.26.3
 require (
 	github.com/Depado/ginprom v1.8.3
 	github.com/fasthttp/websocket v1.5.12
+	github.com/gin-contrib/gzip v1.2.6
 	github.com/gin-contrib/static v1.1.6
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0

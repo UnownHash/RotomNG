@@ -46,8 +46,12 @@ export const handlers = [
 
   http.put("/api/device/_/action/delete", async () => {
     await delay(200);
-    removeDeadDevices();
-    return HttpResponse.json({ ok: true });
+    const devicesRemoved = removeDeadDevices();
+    return HttpResponse.json({
+      status: "ok",
+      message: "Removed dead connections",
+      devices_count: devicesRemoved,
+    });
   }),
 
   http.put("/api/device/:deviceId/action/:action", async ({ params }) => {

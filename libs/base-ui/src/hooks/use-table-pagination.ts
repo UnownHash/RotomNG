@@ -1,9 +1,27 @@
-import { useCallback, useEffect, useState } from "react";
+import { type RefObject, useCallback, useRef, useState } from "react";
 
 export interface UseTablePaginationOptions {
-  initialPage?: number;
+  /**
+   * Rows left after filtering. Required, because the page index has to be kept
+   * inside the list: without it a reader who searches from page 4 lands on a
+   * slice past the end of the results and sees an empty table.
+   */
+  itemCount: number;
+  /**
+   * Page jumps back to the first whenever this value changes. Pass the search
+   * term -- filtering changes what "page 4" refers to, so staying on it is
+   * never what the reader meant.
+   */
+  resetKey?: unknown;
+  /**
+   * Scrolled back into view on every page change. Without it, paging forward
+   * leaves the reader at the bottom of the page they just left, looking at the
+   * footer of a table whose rows have all been replaced.
+   */
+  scrollTargetRef?: RefObject<HTMLElement | null>;
   initialRowsPerPage?: number;
-  tableKey?: string; // Unique key for localStorage persistence
+  /** Unique key for persisting rows-per-page across visits. */
+  tableKey?: string;
 }
 
 export interface UseTablePaginationReturn<T> {
@@ -12,8 +30,15 @@ export interface UseTablePaginationReturn<T> {
   handleChangePage: (event: unknown, newPage: number) => void;
   handleChangeRowsPerPage: (event: React.ChangeEvent<HTMLInputElement>) => void;
   getPaginatedItems: (items: T[]) => T[];
-  resetPage: () => void;
 }
+
+/**
+ * Clears the sticky header plus a little breathing room, so the scrolled-to
+ * table does not start underneath it.
+ */
+const SCROLL_HEADER_OFFSET = 72;
+
+const storageKey = (tableKey: string) => `table-pagination-${tableKey}`;
 
 // Helper function to safely access localStorage
 const getStoredRowsPerPage = (
@@ -23,7 +48,7 @@ const getStoredRowsPerPage = (
   if (typeof window === "undefined") return defaultValue;
 
   try {
-    const stored = localStorage.getItem(`table-pagination-${tableKey}`);
+    const stored = localStorage.getItem(storageKey(tableKey));
     if (stored) {
       const parsed = parseInt(stored, 10);
       // Validate that the stored value is a reasonable pagination size
@@ -43,61 +68,99 @@ const storeRowsPerPage = (tableKey: string, value: number): void => {
   if (typeof window === "undefined") return;
 
   try {
-    localStorage.setItem(`table-pagination-${tableKey}`, value.toString());
+    localStorage.setItem(storageKey(tableKey), value.toString());
   } catch (error) {
     console.warn("Failed to store table pagination to localStorage:", error);
   }
 };
 
+const prefersReducedMotion = (): boolean => {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+};
+
 export function useTablePagination<T>({
-  initialPage = 0,
+  itemCount,
+  resetKey,
+  scrollTargetRef,
   initialRowsPerPage = 25,
   tableKey,
-}: UseTablePaginationOptions = {}): UseTablePaginationReturn<T> {
-  // Get initial rows per page from localStorage if tableKey is provided
-  const getInitialRowsPerPage = useCallback(() => {
-    return tableKey
+}: UseTablePaginationOptions): UseTablePaginationReturn<T> {
+  const [rowsPerPage, setRowsPerPage] = useState(() =>
+    tableKey
       ? getStoredRowsPerPage(tableKey, initialRowsPerPage)
-      : initialRowsPerPage;
-  }, [tableKey, initialRowsPerPage]);
+      : initialRowsPerPage,
+  );
+  const [requestedPage, setRequestedPage] = useState(0);
 
-  const [page, setPage] = useState(initialPage);
-  const [rowsPerPage, setRowsPerPage] = useState(getInitialRowsPerPage);
+  // Adjusting during render rather than in an effect: an effect would paint one
+  // frame of the stale page against the new results before correcting itself.
+  const [lastResetKey, setLastResetKey] = useState(resetKey);
+  if (resetKey !== lastResetKey) {
+    setLastResetKey(resetKey);
+    setRequestedPage(0);
+  }
 
-  // Update localStorage when rowsPerPage changes (only if tableKey is provided)
-  useEffect(() => {
-    if (tableKey && rowsPerPage !== initialRowsPerPage) {
-      storeRowsPerPage(tableKey, rowsPerPage);
-    }
-  }, [rowsPerPage, tableKey, initialRowsPerPage]);
+  // Clamped rather than reset, because itemCount also moves on its own as
+  // devices join and drop off the poll. Resetting on that would drag the reader
+  // back to the first page every few seconds; clamping only intervenes when the
+  // requested page has nothing left on it, and restores the reader's position
+  // if the rows come back.
+  const lastPage = Math.max(0, Math.ceil(itemCount / rowsPerPage) - 1);
+  const page = Math.min(requestedPage, lastPage);
 
-  const handleChangePage = useCallback((_event: unknown, newPage: number) => {
-    setPage(newPage);
-  }, []);
+  // The pagination control hands back an absolute page it worked out from the
+  // page it was rendered with. Two clicks inside one render both compute the
+  // same target, so a quick double-click on Next used to advance a single
+  // page. Recording the rendered page lets the handler recover the step the
+  // reader asked for and apply it to whatever the current value is by then.
+  const renderedPage = useRef(page);
+  renderedPage.current = page;
+
+  const scrollTableIntoView = useCallback(() => {
+    const target = scrollTargetRef?.current;
+    if (!target || typeof window === "undefined") return;
+
+    const top =
+      target.getBoundingClientRect().top +
+      window.scrollY -
+      SCROLL_HEADER_OFFSET;
+    window.scrollTo({
+      top: Math.max(0, top),
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+    });
+  }, [scrollTargetRef]);
+
+  const handleChangePage = useCallback(
+    (_event: unknown, newPage: number) => {
+      const step = newPage - renderedPage.current;
+      setRequestedPage((previous) => {
+        const next = step === 0 ? newPage : previous + step;
+        return Math.max(0, Math.min(next, lastPage));
+      });
+      scrollTableIntoView();
+    },
+    [lastPage, scrollTableIntoView],
+  );
 
   const handleChangeRowsPerPage = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const newRowsPerPage = parseInt(event.target.value, 10);
       setRowsPerPage(newRowsPerPage);
-      setPage(0);
+      setRequestedPage(0);
 
-      // Store to localStorage immediately if tableKey is provided
       if (tableKey) {
         storeRowsPerPage(tableKey, newRowsPerPage);
       }
+      scrollTableIntoView();
     },
-    [tableKey],
+    [tableKey, scrollTableIntoView],
   );
-
-  const resetPage = useCallback(() => {
-    setPage(0);
-  }, []);
 
   const getPaginatedItems = useCallback(
     (items: T[]) => {
       const startIndex = page * rowsPerPage;
-      const endIndex = startIndex + rowsPerPage;
-      return items.slice(startIndex, endIndex);
+      return items.slice(startIndex, startIndex + rowsPerPage);
     },
     [page, rowsPerPage],
   );
@@ -108,6 +171,5 @@ export function useTablePagination<T>({
     handleChangePage,
     handleChangeRowsPerPage,
     getPaginatedItems,
-    resetPage,
   };
 }

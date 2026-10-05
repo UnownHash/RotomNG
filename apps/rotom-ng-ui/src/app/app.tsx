@@ -12,7 +12,7 @@ import {
   TooltipProvider,
   useConfig,
   WorkersPage,
-} from "@rotom-ng/base-ui";
+} from "@unownhash/rotom-base-ui";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Navigate, Route, Routes } from "react-router";

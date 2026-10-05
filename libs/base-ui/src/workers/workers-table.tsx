@@ -5,10 +5,12 @@ import React, {
   useCallback,
   useDeferredValue,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { Collapse } from "../anim/collapse";
 import { CustomTablePagination } from "../components/custom-table-pagination";
+import { TableEmptyState } from "../components/table-empty-state";
 import { Button } from "../components/ui/button";
 import {
   Card,
@@ -34,6 +36,9 @@ import {
 } from "../lib/aesthetic";
 import { cn } from "../lib/utils";
 import { Search } from "../search";
+import { CrossLink } from "../search/cross-link";
+import { buildSearchIndex, normalizeSearchTerm } from "../search/searchable";
+import { useSearchParamState } from "../search/use-search-param";
 import {
   compareWorkerItems,
   getNextSortState,
@@ -44,10 +49,21 @@ import { RelativeTimeLabel } from "../time-label";
 import type { Device, Worker } from "../types";
 import { useDebounce } from "../utils";
 import { WorkerDetails } from "./worker-details";
+import {
+  WORKER_SEARCH_FIELD_LABELS,
+  WORKER_SEARCH_FIELDS,
+  workerRowKey,
+} from "./worker-search";
+
+/** Columns rendered by this table, for the empty state's colSpan. */
+const WORKER_COLUMN_COUNT = 10;
 
 interface WorkersTableProps {
   devices: Device[];
 }
+
+/** A worker plus the haystack its search term is tested against. */
+type IndexedWorker = Worker & { searchIndex: string };
 
 const WorkersTableComponent: React.FC<{
   devices: Device[];
@@ -57,6 +73,42 @@ const WorkersTableComponent: React.FC<{
   const [sortBy, setSortBy] = useState<string>("origin");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [isTableExpanded, setIsTableExpanded] = useState(true);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Use both debounce and deferred value for optimal performance
+  const debouncedSearch = useDebounce(search, 300);
+  const deferredSearch = useDeferredValue(debouncedSearch);
+
+  // Flatten every device's workers, precomputing each row's search haystack --
+  // worth doing once per poll rather than once per keystroke across thousands
+  // of rows.
+  const allWorkers = useMemo(() => {
+    const workers: IndexedWorker[] = [];
+    devices.forEach((device) => {
+      device.workers?.forEach((worker) => {
+        workers.push({
+          ...worker,
+          searchIndex: buildSearchIndex(worker, WORKER_SEARCH_FIELDS),
+        });
+      });
+    });
+    return workers;
+  }, [devices]);
+
+  const filteredAndSortedWorkers = useMemo(() => {
+    const term = normalizeSearchTerm(deferredSearch);
+
+    const filteredWorkers = term
+      ? allWorkers.filter((worker) => worker.searchIndex.includes(term))
+      : allWorkers;
+
+    // Early return if no sorting needed
+    if (!sortBy) return filteredWorkers;
+
+    return [...filteredWorkers].sort((a, b) =>
+      compareWorkerItems(a, b, sortBy, sortOrder),
+    );
+  }, [allWorkers, sortBy, sortOrder, deferredSearch]);
 
   // Use the custom pagination hook with persistent storage
   const {
@@ -65,39 +117,17 @@ const WorkersTableComponent: React.FC<{
     handleChangePage,
     handleChangeRowsPerPage,
     getPaginatedItems,
-  } = useTablePagination<Worker & { searchString: string }>({
+  } = useTablePagination<IndexedWorker>({
     tableKey: "workers",
+    itemCount: filteredAndSortedWorkers.length,
+    resetKey: deferredSearch,
+    scrollTargetRef: cardRef,
   });
 
-  // Use both debounce and deferred value for optimal performance
-  const debouncedSearch = useDebounce(search, 300);
-  const deferredSearch = useDeferredValue(debouncedSearch);
-
-  // Extract all workers from all devices with pre-computed search strings
-  const allWorkers = useMemo(() => {
-    const workers: (Worker & { searchString: string })[] = [];
-    devices.forEach((device) => {
-      if (device.workers) {
-        device.workers.forEach((worker) => {
-          // Pre-compute search string to avoid repeated toLowerCase() calls
-          const searchString = [
-            worker.origin,
-            worker.id,
-            worker.device_id,
-            worker.version_code,
-            worker.session?.controller?.id,
-            worker.is_in_use ? "active" : "inactive",
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase();
-
-          workers.push({ ...worker, searchString });
-        });
-      }
-    });
-    return workers;
-  }, [devices]);
+  // Calculate paginated workers using the hook
+  const paginatedWorkers = useMemo(() => {
+    return getPaginatedItems(filteredAndSortedWorkers);
+  }, [filteredAndSortedWorkers, getPaginatedItems]);
 
   const toggleRowExpansion = useCallback((workerId: string) => {
     setExpandedRows((prev) => {
@@ -120,33 +150,9 @@ const WorkersTableComponent: React.FC<{
     [sortBy, sortOrder],
   );
 
-  const filteredAndSortedWorkers = useMemo(() => {
-    // Use deferred search for better performance
-    const lowercaseSearch = deferredSearch.toLowerCase().trim();
-
-    // First filter the workers based on search using pre-computed search strings
-    const filteredWorkers = lowercaseSearch
-      ? allWorkers.filter((worker) =>
-          worker.searchString.includes(lowercaseSearch),
-        )
-      : allWorkers;
-
-    // Early return if no sorting needed
-    if (!sortBy) return filteredWorkers;
-
-    // Then sort the filtered workers using the worker-specific sorting library with id as secondary sort
-    return [...filteredWorkers].sort((a, b) =>
-      compareWorkerItems(a, b, sortBy, sortOrder),
-    );
-  }, [allWorkers, sortBy, sortOrder, deferredSearch]);
-
-  // Calculate paginated workers using the hook
-  const paginatedWorkers = useMemo(() => {
-    return getPaginatedItems(filteredAndSortedWorkers);
-  }, [filteredAndSortedWorkers, getPaginatedItems]);
-
   return (
     <motion.div
+      ref={cardRef}
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
@@ -171,7 +177,11 @@ const WorkersTableComponent: React.FC<{
               )}
             </Button>
             <CardTitle className="text-xl">
-              Workers ({allWorkers.length})
+              Workers (
+              {search
+                ? `${filteredAndSortedWorkers.length} of ${allWorkers.length}`
+                : `${allWorkers.length}`}
+              )
             </CardTitle>
           </div>
         </CardHeader>
@@ -236,12 +246,12 @@ const WorkersTableComponent: React.FC<{
                     </TableHead>
                     <TableHead className="text-left">
                       <SortHeader
-                        field="session.controller.id"
+                        field="device_id"
                         sortBy={sortBy}
                         sortOrder={sortOrder}
                         onSort={handleSort}
                       >
-                        Controller ID
+                        Device
                       </SortHeader>
                     </TableHead>
                     <TableHead className="text-left">
@@ -279,8 +289,16 @@ const WorkersTableComponent: React.FC<{
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {paginatedWorkers.length === 0 && (
+                    <TableEmptyState
+                      colSpan={WORKER_COLUMN_COUNT}
+                      search={search}
+                      noun="workers"
+                      searchableFields={WORKER_SEARCH_FIELD_LABELS}
+                    />
+                  )}
                   {paginatedWorkers.map((worker, index) => {
-                    const workerId = worker.id || `worker-${index}`;
+                    const workerId = workerRowKey(worker, index);
                     const isExpanded = expandedRows.has(workerId);
 
                     // Status-driven row tinting: disconnected → destructive,
@@ -338,7 +356,15 @@ const WorkersTableComponent: React.FC<{
                             {worker.weight || "N/A"}
                           </TableCell>
                           <TableCell className="text-left">
-                            {worker.session?.controller?.id || ""}
+                            {worker.device_id ? (
+                              <CrossLink
+                                to="/devices"
+                                term={worker.device_id}
+                                label={`Show device ${worker.device_id}`}
+                              />
+                            ) : (
+                              ""
+                            )}
                           </TableCell>
                           <TableCell className="text-left">
                             {worker.version_code}
@@ -396,27 +422,7 @@ const WorkersTableComponent: React.FC<{
 };
 
 const WorkersTable = ({ devices }: WorkersTableProps) => {
-  const [search, setSearch] = useState("");
-
-  const filteredItems = useMemo(() => {
-    const lowercaseSearch = search.toLowerCase();
-    return devices.filter(
-      (device) =>
-        !lowercaseSearch ||
-        device.origin?.toLowerCase().includes(lowercaseSearch) ||
-        device.id?.toLowerCase().includes(lowercaseSearch) ||
-        device.version.toString().toLowerCase().includes(lowercaseSearch) ||
-        device.workers?.some((worker) =>
-          [
-            worker.origin,
-            worker.id,
-            worker.device_id,
-            worker.version_code?.toString(),
-            worker.session?.controller?.id,
-          ].some((field) => field?.toLowerCase().includes(lowercaseSearch)),
-        ),
-    );
-  }, [search, devices]);
+  const [search, setSearch] = useSearchParamState();
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -428,7 +434,7 @@ const WorkersTable = ({ devices }: WorkersTableProps) => {
         />
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">
-        <WorkersTableComponent devices={filteredItems} search={search} />
+        <WorkersTableComponent devices={devices} search={search} />
       </div>
     </div>
   );

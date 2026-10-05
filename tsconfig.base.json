@@ -10,8 +10,8 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "paths": {
-      "@rotom-ng/base-ui": ["libs/base-ui/src/index.ts"],
-      "@rotom-ng/base-ui/*": ["libs/base-ui/src/*"]
+      "@unownhash/rotom-base-ui": ["libs/base-ui/src/index.ts"],
+      "@unownhash/rotom-base-ui/*": ["libs/base-ui/src/*"]
     },
     "rootDir": ".",
     "skipDefaultLibCheck": true,

@@ -118,8 +118,11 @@ export const removeDevice = (id: string) => {
   mockState.devices = mockState.devices.filter((d) => d.id !== id);
 };
 
-export const removeDeadDevices = () => {
+/** Returns how many entries were dropped, matching the real API's reply. */
+export const removeDeadDevices = (): number => {
+  const before = mockState.devices.length;
   mockState.devices = mockState.devices.filter((d) => d.is_connected);
+  return before - mockState.devices.length;
 };
 
 export const setDeviceConnected = (id: string, connected: boolean) => {

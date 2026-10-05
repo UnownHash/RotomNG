@@ -1,0 +1,12 @@
+/* The application's stylesheet.
+ *
+ * The shared library's stylesheet carries the theme, the Tailwind import, and
+ * an @source for its own components. It deliberately does not reach up into
+ * this application's tree: once base-ui is installed from a registry rather
+ * than read out of the workspace, a relative path out of the package stops
+ * resolving and every class used only here would be dropped from the build.
+ *
+ * So each side scans itself. This @source is relative to this file. */
+@import "@unownhash/rotom-base-ui/styles/globals.css";
+
+@source "./**/*.{ts,tsx}";
